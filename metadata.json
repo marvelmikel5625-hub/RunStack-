@@ -1,0 +1,6 @@
+{
+  "name": "RunStack",
+  "description": "Professional online coding platform with live code editor, multi-language execution, live preview, error diagnostics, and multi-file project support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
