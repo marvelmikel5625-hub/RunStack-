@@ -9,6 +9,14 @@ export interface CodeEditorHandle {
   triggerReplace: () => void;
   formatDocument: () => void;
   focus: () => void;
+  selectAll: () => void;
+  copy: () => void;
+  cut: () => void;
+  paste: () => void;
+  undo: () => void;
+  redo: () => void;
+  clearActiveFile: () => void;
+  getValue: () => string;
 }
 
 interface CodeEditorProps {
@@ -24,40 +32,51 @@ interface CodeEditorProps {
 
 export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
   (
-    {
-      file,
-      onChange,
-      theme,
-      fontSize,
-      wordWrap,
-      jumpToLine,
-      diagnostics = [],
-      className = '',
-    },
+    { file, onChange, theme, fontSize, wordWrap, jumpToLine, diagnostics = [], className = '' },
     ref
   ) => {
     const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
     const monacoRef = useRef<typeof Monaco | null>(null);
+    const isFocusedRef = useRef<boolean>(false);
 
     useImperativeHandle(ref, () => ({
-      triggerFind: () => {
-        if (editorRef.current) {
-          editorRef.current.getAction('actions.find')?.run();
-        }
+      triggerFind: () => editorRef.current?.getAction('actions.find')?.run(),
+      triggerReplace: () => editorRef.current?.getAction('editor.action.startFindReplaceAction')?.run(),
+      formatDocument: () => editorRef.current?.getAction('editor.action.formatDocument')?.run(),
+      focus: () => editorRef.current?.focus(),
+      selectAll: () => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        const model = ed.getModel();
+        if (!model) return;
+        ed.setSelection(model.getFullModelRange());
+        ed.focus();
       },
-      triggerReplace: () => {
-        if (editorRef.current) {
-          editorRef.current.getAction('editor.action.startFindReplaceAction')?.run();
-        }
+      copy: () => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        // Monaco's copy uses the browser clipboard; if the user has selected text,
+        // we fall back to execCommand on a temporary textarea only when necessary.
+        const sel = ed.getSelection();
+        if (!sel || sel.isEmpty()) return;
+        ed.getAction('editor.action.clipboardCopyAction')?.run();
       },
-      formatDocument: () => {
-        if (editorRef.current) {
-          editorRef.current.getAction('editor.action.formatDocument')?.run();
-        }
+      cut: () => editorRef.current?.getAction('editor.action.clipboardCutAction')?.run(),
+      paste: () => editorRef.current?.getAction('editor.action.clipboardPasteAction')?.run(),
+      undo: () => editorRef.current?.trigger('toolbar', 'undo', null),
+      redo: () => editorRef.current?.trigger('toolbar', 'redo', null),
+      clearActiveFile: () => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        const model = ed.getModel();
+        if (!model) return;
+        ed.executeEdits('clearActiveFile', [
+          { range: model.getFullModelRange(), text: '' },
+        ]);
+        ed.setPosition({ lineNumber: 1, column: 1 });
+        ed.pushUndoStop();
       },
-      focus: () => {
-        editorRef.current?.focus();
-      },
+      getValue: () => editorRef.current?.getModel()?.getValue() ?? '',
     }));
 
     const updateMarkers = () => {
@@ -103,7 +122,6 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
       editorRef.current = editor;
       monacoRef.current = monaco;
 
-      // Professional editor configuration
       editor.updateOptions({
         fontSize,
         wordWrap,
@@ -124,82 +142,82 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
           enabled: true,
           independentColorPoolPerBracketType: true,
         },
-        guides: {
-          bracketPairs: true,
-          indentation: true,
-        },
-        autoClosingBrackets: 'always',
-        autoClosingQuotes: 'always',
-        formatOnPaste: true,
-        formatOnType: true,
+        guides: { bracketPairs: true, indentation: true },
+        autoClosingBrackets: 'languageDefined',
+        autoClosingQuotes: 'languageDefined',
+        formatOnPaste: false,
+        formatOnType: false,
         renderWhitespace: 'selection',
+        // --- Clipboard / selection fixes ---
+        contextmenu: true,
+        copyWithSyntaxHighlighting: false,
+        emptySelectionClipboard: false,
+        readOnly: false,
+        domReadOnly: false,
+        // --- Scroll fixes ---
+        scrollbar: {
+          vertical: 'auto',
+          horizontal: 'auto',
+          useShadows: false,
+          verticalScrollbarSize: 10,
+          horizontalScrollbarSize: 10,
+          alwaysConsumeMouseWheel: false,
+        },
+        // Let long lines exist when word wrap is off
+        wordWrapOverride1: wordWrap === 'off' ? 'off' : 'on',
+        wordWrapOverride2: wordWrap === 'off' ? 'off' : 'on',
         find: {
           addExtraSpaceOnTop: false,
           seedSearchStringFromSelection: 'always',
         },
       });
 
+      editor.onDidFocusEditorText(() => {
+        isFocusedRef.current = true;
+      });
+      editor.onDidBlurEditorText(() => {
+        isFocusedRef.current = false;
+      });
+
       updateMarkers();
 
-      // Check if there is an active jumpToLine pending from error click
       if (jumpToLine && Date.now() - jumpToLine.timestamp < 10000) {
         setTimeout(() => {
-          editor.revealLineInCenter(jumpToLine.line);
-          editor.setPosition({
-            lineNumber: jumpToLine.line,
-            column: jumpToLine.column || 1,
-          });
-          const deltaDecorations = editor.deltaDecorations(
-            [],
-            [
-              {
-                range: new monaco.Range(jumpToLine.line, 1, jumpToLine.line, 1),
-                options: {
-                  isWholeLine: true,
-                  className: 'bg-red-500/20 border-l-4 border-red-500',
-                  glyphMarginClassName: 'bg-red-500 rounded-full',
-                },
-              },
-            ]
-          );
-          setTimeout(() => {
-            if (editorRef.current) {
-              editorRef.current.deltaDecorations(deltaDecorations, []);
-            }
-          }, 3000);
-          editor.focus();
+          // Only auto-jump if the editor is not currently the active focus target
+          if (!isFocusedRef.current) {
+            editor.revealLineInCenter(jumpToLine.line);
+            editor.setPosition({ lineNumber: jumpToLine.line, column: jumpToLine.column || 1 });
+            editor.focus();
+          } else {
+            editor.revealLineInCenter(jumpToLine.line);
+          }
         }, 100);
       }
     };
 
-    // Update settings dynamically if changed
     useEffect(() => {
       if (editorRef.current) {
         editorRef.current.updateOptions({
           fontSize,
           wordWrap,
+          wordWrapOverride1: wordWrap === 'off' ? 'off' : 'on',
+          wordWrapOverride2: wordWrap === 'off' ? 'off' : 'on',
         });
       }
     }, [fontSize, wordWrap]);
 
-    // Sync markers whenever diagnostics or active file content changes
     useEffect(() => {
       updateMarkers();
     }, [diagnostics, file.id, file.content]);
 
-    // React to jumpToLine updates from problem/error clicks
     useEffect(() => {
       if (!jumpToLine || !editorRef.current) return;
-
       const editor = editorRef.current;
-      editor.revealLineInCenter(jumpToLine.line);
-      editor.setPosition({
-        lineNumber: jumpToLine.line,
-        column: jumpToLine.column || 1,
-      });
 
-      // Highlight the targeted line with a flash decoration
-      const deltaDecorations = editor.deltaDecorations(
+      editor.revealLineInCenter(jumpToLine.line);
+      editor.setPosition({ lineNumber: jumpToLine.line, column: jumpToLine.column || 1 });
+
+      const delta = editor.deltaDecorations(
         [],
         [
           {
@@ -214,15 +232,13 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
       );
 
       setTimeout(() => {
-        if (editorRef.current) {
-          editorRef.current.deltaDecorations(deltaDecorations, []);
-        }
+        if (editorRef.current) editorRef.current.deltaDecorations(delta, []);
       }, 2500);
 
-      editor.focus();
+      // Do not steal focus if the user is typing
+      if (!isFocusedRef.current) editor.focus();
     }, [jumpToLine]);
 
-    // Map file language to Monaco language identifier
     const getMonacoLanguage = (lang: string, path: string): string => {
       if (path.endsWith('.html') || path.endsWith('.htm')) return 'html';
       if (path.endsWith('.css')) return 'css';
@@ -239,7 +255,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
     };
 
     return (
-      <div className={`relative w-full h-full overflow-hidden ${className}`}>
+      <div className={`relative w-full h-full ${className}`} style={{ overflow: 'visible' }}>
         <Editor
           key={file.id}
           height="100%"
@@ -264,6 +280,14 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
             folding: true,
             lineDecorationsWidth: 10,
             fixedOverflowWidgets: true,
+            scrollbar: {
+              vertical: 'auto',
+              horizontal: 'auto',
+              useShadows: false,
+              verticalScrollbarSize: 10,
+              horizontalScrollbarSize: 10,
+              alwaysConsumeMouseWheel: false,
+            },
           }}
           loading={
             <div className="flex flex-col items-center justify-center h-full text-slate-400 bg-slate-50 gap-2">
