@@ -3,9 +3,11 @@ export type SupportedLanguage =
   | 'css' 
   | 'javascript' 
   | 'html-css-js' 
+  | 'react'
+  | 'typescript'
   | 'python' 
   | 'sql' 
-  | 'typescript' 
+  | 'json'
   | 'cpp' 
   | 'rust' 
   | 'java';
@@ -50,6 +52,7 @@ export interface EditorSettings {
   theme: 'vs' | 'vs-dark';
   fontSize: number;
   wordWrap: 'on' | 'off';
+  lineNumbers?: 'on' | 'off';
   autoRun: boolean;
   autoRunDelay: number; // in ms
   panelPosition: 'bottom' | 'right';
@@ -58,3 +61,4 @@ export interface EditorSettings {
   isPanelCollapsed: boolean;
   activePanelTab: 'console' | 'problems' | 'errors' | 'output' | 'input' | 'animations' | 'network' | 'files';
 }
+

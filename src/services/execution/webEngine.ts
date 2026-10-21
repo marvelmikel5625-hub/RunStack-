@@ -1,4 +1,5 @@
 import { ProjectFile } from '../../types/project';
+import { transform } from 'sucrase';
 
 export interface WebEngineBundle {
   html: string;
@@ -33,7 +34,7 @@ function getMimeType(fileName: string): string {
 
 /**
  * Prepares sandboxed HTML document from project files.
- * Correctly combines index.html, style.css, and script.js so they work seamlessly together.
+ * Correctly combines HTML, CSS, JavaScript, TypeScript, and React components.
  * Injects RunStack bridge for:
  * 1. Console capturing & live REPL evaluation
  * 2. Uncaught runtime error interceptors
@@ -41,6 +42,8 @@ function getMimeType(fileName: string): string {
  * 4. Genuine Network request tracking for fetch & XMLHttpRequest
  * 5. Relative asset (image/font) data URL resolution
  * 6. Internal link navigation for multi-page static projects
+ * 7. In-sandbox modal dialog fallback for window.alert
+ * 8. Real-time TypeScript and TSX/JSX transpilation via Sucrase
  */
 export function buildSandboxedDocument(
   files: ProjectFile[],
@@ -102,6 +105,37 @@ export function buildSandboxedDocument(
   <p>Check the <strong>Console</strong> tab in the Developer Panel below to view real-time log, info, warning, and error outputs.</p>
 </body>
 </html>`;
+  } else if (activeFile?.language === 'typescript') {
+    // TypeScript-only mode with live preview canvas
+    htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TypeScript Sandbox</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 1.5rem; color: #1e293b; line-height: 1.5; }
+    .badge { display: inline-block; padding: 3px 8px; background: #f0fdf4; color: #166534; border-radius: 4px; font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="badge">TypeScript Runtime Sandbox (Sucrase)</div>
+  <div id="app"></div>
+</body>
+</html>`;
+  } else if (activeFile?.name.endsWith('.tsx') || activeFile?.name.endsWith('.jsx')) {
+    // React mode with live root element
+    htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>React Sandbox</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>`;
   } else {
     htmlContent = `<!DOCTYPE html><html><body><p style="font-family:sans-serif;color:#64748b;padding:1rem;">No HTML entry point found.</p></body></html>`;
   }
@@ -127,6 +161,33 @@ export function buildSandboxedDocument(
       return String(arg);
     }
   }
+
+  // Window Alert In-Sandbox Dialog (works in sandboxed iframe without security restrictions)
+  window.alert = function(msg) {
+    var text = msg === undefined ? '' : String(msg);
+    console.log('[alert]', text);
+    try {
+      var old = document.getElementById('runstack-alert-dialog');
+      if (old) old.remove();
+
+      var dialog = document.createElement('div');
+      dialog.id = 'runstack-alert-dialog';
+      dialog.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#0f172a;color:#f8fafc;padding:12px 20px;border-radius:10px;font-family:system-ui,-apple-system,sans-serif;font-size:14px;box-shadow:0 10px 25px rgba(0,0,0,0.35);z-index:9999999;display:flex;align-items:center;gap:14px;border:1px solid #334155;max-width:92vw;';
+
+      var span = document.createElement('span');
+      span.textContent = text;
+
+      var okBtn = document.createElement('button');
+      okBtn.textContent = 'OK';
+      okBtn.style.cssText = 'background:#2563eb;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer;';
+      okBtn.onclick = function() { dialog.remove(); };
+
+      dialog.appendChild(span);
+      dialog.appendChild(okBtn);
+      document.body.appendChild(dialog);
+      setTimeout(function() { if (dialog.parentNode) dialog.remove(); }, 6000);
+    } catch(e) {}
+  };
 
   // 1. Console Interception
   const originalConsole = {
@@ -469,11 +530,67 @@ export function buildSandboxedDocument(
     }
   }
 
-  // 2. Resolve and inline JavaScript files
+  // 2. Resolve, transpile (TS/TSX/JSX via Sucrase), and inline script files
+  const scriptFiles = files.filter(
+    (f) =>
+      /\.(js|mjs|ts|tsx|jsx)$/i.test(f.name) ||
+      f.language === 'javascript' ||
+      f.language === 'typescript'
+  );
+
+  const hasReact = files.some(
+    (f) =>
+      /\.(tsx|jsx)$/i.test(f.name) ||
+      f.name === 'App.tsx' ||
+      f.content.includes("from 'react'") ||
+      f.content.includes('from "react"') ||
+      f.content.includes('import React')
+  );
+
+  if (hasReact && !processedHtml.includes('react.development.js') && !processedHtml.includes('react@')) {
+    const reactCdnScripts = `<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>\n<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>`;
+    if (processedHtml.includes('</head>')) {
+      processedHtml = processedHtml.replace('</head>', `${reactCdnScripts}\n</head>`);
+    } else {
+      processedHtml = `${reactCdnScripts}\n${processedHtml}`;
+    }
+  }
+
   let inlineJsBlocks = '';
-  jsFiles.forEach((jsFile) => {
-    const scriptSrcRegex = new RegExp(`<script[^>]+src=["'](\\.\\/)?${jsFile.name}["'][^>]*>\\s*<\\/script>`, 'i');
-    const wrappedScript = `<script data-source="${jsFile.path}">\n// ${jsFile.path}\ntry {\n${jsFile.content}\n} catch(e) {\n  console.error(e);\n  if (typeof window.__reportRunstackRuntimeError === 'function') {\n    window.__reportRunstackRuntimeError(e, '${jsFile.name}');\n  }\n}\n</script>`;
+  scriptFiles.forEach((scriptFile) => {
+    let runnableContent = scriptFile.content;
+    const isTsOrJsx =
+      /\.(ts|tsx|jsx)$/i.test(scriptFile.name) ||
+      scriptFile.language === 'typescript' ||
+      (scriptFile.content.includes('<') && scriptFile.content.includes('/>'));
+
+    if (isTsOrJsx) {
+      try {
+        const isJsx = /\.(tsx|jsx)$/i.test(scriptFile.name) || (scriptFile.content.includes('<') && scriptFile.content.includes('/>'));
+        const transforms: Array<'typescript' | 'jsx' | 'imports'> = isJsx
+          ? ['typescript', 'jsx', 'imports']
+          : ['typescript', 'imports'];
+        const res = transform(scriptFile.content, {
+          transforms,
+          jsxRuntime: 'classic',
+        });
+        runnableContent = res.code;
+      } catch (transpileErr: any) {
+        const errMsg = transpileErr?.message || String(transpileErr);
+        const line = transpileErr?.loc?.line || 1;
+        const col = transpileErr?.loc?.column || 1;
+        runnableContent = `console.error("Transpilation error in ${scriptFile.name}: ${errMsg.replace(/"/g, '\\"')}");
+        if (typeof window.__reportRunstackRuntimeError === 'function') {
+          window.__reportRunstackRuntimeError(${JSON.stringify(errMsg)}, '${scriptFile.name}', ${line}, ${col});
+        }`;
+      }
+    }
+
+    const scriptSrcRegex = new RegExp(
+      `<script[^>]+src=["'](\\.\\/)?${scriptFile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>\\s*<\\/script>`,
+      'i'
+    );
+    const wrappedScript = `<script data-source="${scriptFile.path}">\n// ${scriptFile.path}\ntry {\n${runnableContent}\n} catch(e) {\n  console.error(e);\n  if (typeof window.__reportRunstackRuntimeError === 'function') {\n    window.__reportRunstackRuntimeError(e, '${scriptFile.name}');\n  }\n}\n</script>`;
 
     if (scriptSrcRegex.test(processedHtml)) {
       processedHtml = processedHtml.replace(scriptSrcRegex, wrappedScript);
@@ -482,9 +599,34 @@ export function buildSandboxedDocument(
     }
   });
 
-  if (activeFile?.language === 'javascript' && !jsFiles.some((f) => f.id === activeFile.id)) {
-    const wrappedScript = `<script data-source="${activeFile.path}">\ntry {\n${activeFile.content}\n} catch(e) {\n  console.error(e);\n  if (typeof window.__reportRunstackRuntimeError === 'function') {\n    window.__reportRunstackRuntimeError(e, '${activeFile.name}');\n  }\n}\n</script>`;
+  if (activeFile && (activeFile.language === 'javascript' || activeFile.language === 'typescript') && !scriptFiles.some((f) => f.id === activeFile.id)) {
+    let runnableContent = activeFile.content;
+    if (activeFile.language === 'typescript' || activeFile.name.endsWith('.ts')) {
+      try {
+        runnableContent = transform(activeFile.content, { transforms: ['typescript', 'imports'] }).code;
+      } catch (e: any) {
+        runnableContent = `console.error(${JSON.stringify(e?.message || String(e))});`;
+      }
+    }
+    const wrappedScript = `<script data-source="${activeFile.path}">\ntry {\n${runnableContent}\n} catch(e) {\n  console.error(e);\n  if (typeof window.__reportRunstackRuntimeError === 'function') {\n    window.__reportRunstackRuntimeError(e, '${activeFile.name}');\n  }\n}\n</script>`;
     inlineJsBlocks += `\n${wrappedScript}`;
+  }
+
+  // React auto-mount support if <div id="root"></div> exists and App component is declared
+  if (hasReact) {
+    const reactMountScript = `<script>
+if (typeof ReactDOM !== 'undefined' && typeof React !== 'undefined') {
+  var rootNode = document.getElementById('root');
+  if (rootNode && !rootNode._reactRoot) {
+    var comp = typeof App !== 'undefined' ? App : (typeof window.App !== 'undefined' ? window.App : null);
+    if (comp) {
+      rootNode._reactRoot = ReactDOM.createRoot(rootNode);
+      rootNode._reactRoot.render(React.createElement(comp));
+    }
+  }
+}
+</script>`;
+    inlineJsBlocks += `\n${reactMountScript}`;
   }
 
   // 3. Inject Bridge Script (must run before any user scripts)

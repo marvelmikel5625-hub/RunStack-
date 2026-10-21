@@ -1,0 +1,909 @@
+PROJECT: RUNSTACK — COMPLETE CODE EDITOR REPAIR, FUNCTIONALITY IMPROVEMENT, AND FEATURE COMPLETION
+
+You are acting as a senior software engineer, React developer, TypeScript specialist, browser-based IDE engineer, and debugging expert.
+
+Your task is to inspect, repair, improve, and complete my EXISTING RunStack coding website.
+
+IMPORTANT: DO NOT START A NEW PROJECT.
+DO NOT REPLACE MY EXISTING APPLICATION WITH A SIMPLE DEMO.
+DO NOT REMOVE WORKING FEATURES.
+DO NOT CREATE A STATIC MOCKUP.
+DO NOT ONLY CHANGE THE DESIGN.
+DO NOT GIVE ME INSTRUCTIONS INSTEAD OF IMPLEMENTING THE FIXES.
+
+You must inspect the existing repository, understand its architecture, identify incomplete or broken functionality, and implement the necessary corrections directly in the existing codebase.
+
+Preserve the existing RunStack branding, components, project structure, supported functionality, and useful interface elements wherever possible.
+
+The final result must be a working browser-based coding environment that supports editing, previewing, running, debugging, and managing code projects.
+
+==================================================
+1. FIRST: INSPECT THE ENTIRE EXISTING PROJECT
+==================================================
+
+Before changing anything, inspect:
+
+- package.json and dependencies.
+- The main application entry point.
+- src/components/workspace/Workspace.tsx.
+- The CodeEditor component and its associated editor configuration.
+- EditorTabs.
+- LivePreview.
+- DeveloperPanel.
+- FileExplorer.
+- Project and project-file types.
+- Language configuration and language detection.
+- Python execution engine.
+- SQL execution engine.
+- HTML, CSS, JavaScript, TypeScript, and React execution or preview systems.
+- Project storage and IndexedDB functionality.
+- ZIP import and export functionality.
+- Console output, runtime errors, diagnostics, and execution status.
+- Mobile navigation and responsive layouts.
+- All components and handlers connected to the workspace.
+
+Identify existing features that are incomplete, disconnected, duplicated, incorrectly implemented, or broken.
+
+There has previously been a JSX parsing/build error in Workspace.tsx around the Python diagnostics condition:
+
+if (pyDiags.length > 0) {
+
+The comparison itself is valid TypeScript. Investigate whether malformed JSX, an incorrectly closed element, a duplicated return statement, or an incomplete component is causing the parser to interpret this statement as JSX.
+
+Repair the actual structural problem. Do not simply escape the greater-than symbol or hide the error.
+
+Inspect the entire component after making the correction.
+
+Make sure the application compiles without TypeScript errors, JSX parsing errors, missing imports, undefined functions, or missing component properties.
+
+Do not solve compilation problems by disabling type checking, suppressing errors, or replacing working functionality with placeholders.
+
+==================================================
+2. REPAIR THE EDITOR AND LIVE PREVIEW SPLIT VIEW
+==================================================
+
+The application should provide a functional editor-and-preview workspace.
+
+The split view must contain:
+
+LEFT SIDE:
+- Code editor.
+- File tabs.
+- Current file name.
+- Syntax highlighting.
+- Editable source code.
+- Appropriate editor controls.
+
+RIGHT SIDE:
+- Live website preview.
+- Refresh or rerun control where appropriate.
+- Preview loading and error states.
+- Responsive preview dimensions.
+- A way to switch between preview and other developer panels.
+
+Users must be able to work with the code and preview simultaneously.
+
+Allow users to adjust the division between the editor and preview if the current architecture supports a resizable split panel. If it does not, implement a suitable lightweight resizable layout without introducing unnecessary dependencies.
+
+The editor must have enough width to make code comfortable to read and edit.
+
+Do not allow the editor and preview to become so narrow that the workspace is unusable.
+
+Make the layout responsive on mobile devices.
+
+On smaller screens, provide clear controls for switching between:
+- Editor.
+- Preview.
+- Output or console.
+- Errors or diagnostics.
+
+Avoid displaying the editor and preview side by side when the available screen width makes both unusable.
+
+IMPORTANT SCROLLING REQUIREMENT:
+
+The editor must be able to extend vertically beyond the visible screen.
+
+Users should be able to scroll through longer source files, reach the final lines of code, and return to earlier lines without losing their place.
+
+The preview must remain accessible even when the editor contains hundreds or thousands of lines.
+
+Provide a convenient way to switch to the preview and back to the editor.
+
+In split view, implement scrolling independently where appropriate:
+- The editor scrolls through the source code.
+- The preview scrolls through the rendered page.
+- The surrounding workspace must not accidentally capture all scrolling events.
+
+Avoid unnecessarily restricting the editor height or clipping the last lines of code.
+
+==================================================
+3. MOBILE EDITOR AND ANDROID KEYBOARD FIX
+==================================================
+
+This requirement is particularly important because users will access RunStack on Android phones.
+
+When a user selects Editor Only and taps inside the editor, the Android keyboard must not cover the active line of code or the user's cursor.
+
+The editor must respond correctly when the virtual keyboard opens.
+
+Implement appropriate handling for:
+- The mobile visual viewport.
+- Virtual keyboard appearance and disappearance.
+- The active cursor position.
+- Editor resizing.
+- Editor scrolling.
+- The last visible lines of code.
+- Mobile browser viewport changes.
+
+Use the Visual Viewport API where supported, with sensible fallbacks for browsers that do not support it.
+
+When the keyboard opens:
+1. Recalculate the available visible height when necessary.
+2. Resize the editor to fit the available space.
+3. Keep the active cursor and current line visible.
+4. Allow the user to scroll to the final lines of a file.
+5. Prevent the editor from becoming trapped behind the keyboard.
+6. Restore the appropriate workspace dimensions when the keyboard closes.
+
+Do not assume that a fixed 100vh value will always represent the visible mobile screen.
+
+Use appropriate mobile viewport techniques, including dynamic viewport units where supported.
+
+Do not repeatedly steal focus from the editor.
+
+Do not automatically close the keyboard when a user is editing code.
+
+Do not allow the entire page to jump unpredictably every time the keyboard opens.
+
+Test both short and long source files.
+
+The editor must remain usable when a user is editing the middle of a file, adding code near the bottom, deleting lines, or pasting a large block of code.
+
+==================================================
+4. MAKE THE CODE EDITOR FULLY EDITABLE
+==================================================
+
+The editor must behave like a real code editor, not a read-only text display.
+
+Users must be able to:
+
+- Tap or click anywhere in the source code.
+- Position the cursor.
+- Select individual characters.
+- Select multiple lines.
+- Select all code.
+- Copy code.
+- Cut code.
+- Paste code.
+- Delete selected code.
+- Replace selected code.
+- Insert new code.
+- Undo edits.
+- Redo edits.
+- Use keyboard shortcuts where supported.
+- Use the normal Android text-selection menu where appropriate.
+- Edit code near the beginning, middle, and end of a file.
+- Work with indentation and line breaks.
+- Scroll through long files.
+- Edit code without the editor unexpectedly losing focus.
+
+Support ordinary editing operations such as:
+
+Ctrl+C or Cmd+C: Copy.
+Ctrl+X or Cmd+X: Cut.
+Ctrl+V or Cmd+V: Paste.
+Ctrl+A or Cmd+A: Select all.
+Ctrl+Z or Cmd+Z: Undo.
+Ctrl+Shift+Z or Cmd+Shift+Z: Redo, where supported.
+
+Do not intercept these shortcuts in a way that breaks native editor behavior.
+
+On Android, preserve normal touch-based selection, the copy/cut/paste menu, cursor movement, and keyboard input.
+
+If the project uses Monaco Editor, CodeMirror, or another established editor library, inspect its current implementation before changing it.
+
+Prefer repairing and correctly configuring the existing editor rather than replacing it unnecessarily.
+
+If the current editor is a basic textarea, determine whether upgrading it is justified by the existing architecture and dependencies. Preserve compatibility with the rest of the application.
+
+The editor must remain connected to the project's actual file state.
+
+Changes made in the editor must update the corresponding project file.
+
+Switching tabs must not unexpectedly discard edits.
+
+Where autosave already exists, make sure it works correctly. If persistence is missing, implement reliable local persistence using the project's existing storage architecture.
+
+Show an appropriate modified or saved indicator if supported.
+
+Do not pretend code was saved if the save operation failed.
+
+==================================================
+5. PROVIDE USEFUL CODE EDITOR CONTROLS
+==================================================
+
+Inspect the current editor toolbar and improve it without overcrowding the interface.
+
+Where appropriate, provide:
+- Copy.
+- Cut.
+- Paste support through native editing behavior.
+- Select all.
+- Undo.
+- Redo.
+- Find.
+- Replace.
+- Format code where a suitable formatter is available.
+- Toggle word wrap.
+- Toggle line numbers.
+- Increase or decrease editor font size.
+- Download the current file.
+- Save or indicate autosave status.
+- Run or preview the current project where appropriate.
+
+Use clear icons with tooltips or accessible labels.
+
+Do not display fake controls that do nothing.
+
+If a browser restriction prevents a clipboard operation, provide a useful fallback or explain the restriction.
+
+Do not request clipboard permissions unnecessarily.
+
+On mobile, ensure important controls remain reachable without covering the code.
+
+==================================================
+6. CORRECT THE HTML PROJECT AND FILE-TYPE SYSTEM
+==================================================
+
+The application must distinguish between an HTML document and a project that uses multiple files.
+
+An HTML file must be identified as HTML.
+
+Do not automatically classify every HTML file as:
+
+HTML + CSS + JavaScript
+
+unless the project actually has that structure and the interface is intentionally describing the project configuration.
+
+Do not display misleading labels that suggest a language is present when it is not.
+
+Support these situations:
+
+A. SINGLE HTML FILE
+
+Example:
+
+index.html
+
+The HTML file may contain:
+
+- HTML markup.
+- CSS inside a <style> element.
+- JavaScript inside a <script> element.
+
+This should be treated as a valid single-file HTML project.
+
+Users should be able to edit and preview it without being forced to create separate CSS and JavaScript files.
+
+B. MULTI-FILE HTML PROJECT
+
+Example:
+
+index.html
+styles.css
+script.js
+
+The application must correctly associate the stylesheet and JavaScript file with the HTML document when the project is run.
+
+C. HTML PROJECT WITH ADDITIONAL ASSETS
+
+Example:
+
+index.html
+styles.css
+script.js
+images/
+assets/
+
+Preserve relative paths and load assets correctly when the preview environment supports them.
+
+D. HTML FILE WITH EMBEDDED CSS AND JAVASCRIPT
+
+Do not create unnecessary external files when the user intentionally wants everything inside one HTML document.
+
+E. HTML FILE WITH EXTERNAL CSS AND JAVASCRIPT
+
+Do not incorrectly duplicate external code inside the HTML file.
+
+Detect the actual project structure instead of assuming every project uses the same arrangement.
+
+The interface should distinguish between:
+- HTML document.
+- CSS stylesheet.
+- JavaScript file.
+- TypeScript file.
+- React component.
+- JSON file.
+- Python script.
+- SQL file.
+- Other supported file types.
+
+Use the correct language mode and syntax highlighting for each file.
+
+Do not use the file extension alone to make assumptions that ignore the actual project configuration.
+
+==================================================
+7. SUPPORT MULTIPLE PROJECT TYPES CORRECTLY
+==================================================
+
+Inspect the application's current language and project architecture.
+
+Preserve existing supported languages and complete their integrations.
+
+At minimum, verify the intended behavior of:
+
+1. HTML.
+2. CSS.
+3. JavaScript.
+4. TypeScript.
+5. React.
+6. Python.
+7. SQL.
+8. JSON.
+
+Also inspect any existing support for:
+- JSX.
+- TSX.
+- Node.js.
+- Other languages already advertised by the interface.
+
+Do not advertise a language as fully executable if its runtime has not actually been implemented.
+
+Separate these concepts clearly:
+
+LANGUAGE:
+The programming or markup language used in a file.
+
+PROJECT TYPE:
+The structure of the application, such as a static HTML project, React application, or Node.js project.
+
+RUNTIME:
+The environment that executes the code.
+
+PREVIEW:
+The interface used to display a rendered website or application.
+
+Examples:
+
+A file named index.html should use HTML syntax highlighting.
+
+A file named styles.css should use CSS syntax highlighting.
+
+A file named app.js should use JavaScript syntax highlighting.
+
+A file named app.ts should use TypeScript syntax highlighting.
+
+A file named App.tsx should use TSX syntax highlighting and the correct React project pipeline when applicable.
+
+A file named main.py should use Python syntax highlighting and the existing Python execution engine.
+
+A file named query.sql should use SQL syntax highlighting and the existing SQL execution engine.
+
+Do not execute TypeScript directly as ordinary JavaScript without an appropriate transpilation or runtime process.
+
+Do not assume React JSX can run in the browser without an appropriate build or transformation process.
+
+==================================================
+8. FIX SINGLE-FILE HTML EXECUTION
+==================================================
+
+A user must be able to create a simple HTML document, enter code, and preview the result.
+
+For example:
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Website</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hello from RunStack</h1>
+  <button onclick="showMessage()">Click Me</button>
+
+  <script>
+    function showMessage() {
+      alert("RunStack is working!");
+    }
+  </script>
+</body>
+</html>
+
+The user should be able to run this document and see the heading and button in the preview.
+
+Clicking the button should execute the JavaScript in the preview.
+
+The stylesheet should be applied.
+
+The page must be rendered in the intended preview environment rather than displayed as raw source code.
+
+When possible, refresh or update the preview after the source changes.
+
+Avoid running a preview on every keystroke if that causes performance problems. Debouncing or an explicit Run button may be appropriate.
+
+Handle malformed HTML and JavaScript errors without crashing the entire RunStack application.
+
+==================================================
+9. FIX CSS, JAVASCRIPT, TYPESCRIPT, AND REACT PREVIEW
+==================================================
+
+Verify each existing project pipeline.
+
+CSS:
+- Apply styles to the correct preview.
+- Support normal CSS syntax.
+- Report useful errors when available.
+
+JavaScript:
+- Execute supported browser JavaScript in an isolated preview environment.
+- Display console output where implemented.
+- Surface runtime errors appropriately.
+
+TypeScript:
+- Use a real transpilation step or existing TypeScript execution pipeline.
+- Display understandable errors for invalid TypeScript.
+- Do not claim TypeScript runs successfully when transpilation fails.
+
+React:
+- Correctly handle JSX and TSX where the project pipeline supports them.
+- Resolve imports and dependencies through the actual build system.
+- Render the React application in the preview.
+- Surface build and runtime errors.
+- Do not assume every React project can be rendered by inserting source text directly into an HTML page.
+
+For multi-file projects, resolve the relationships between files according to the project's supported module system.
+
+Avoid silently ignoring missing imports, missing files, or compilation errors.
+
+Do not replace genuine execution with hardcoded preview content.
+
+==================================================
+10. PYTHON EXECUTION
+==================================================
+
+Inspect the existing Python engine and repair its integration with Workspace.tsx.
+
+If the project already uses Pyodide or another browser-compatible Python runtime, preserve and correctly integrate it.
+
+Verify that:
+- Python code can be submitted for execution.
+- Initialization status is displayed.
+- Execution status changes correctly.
+- Standard output is displayed in the console.
+- Errors are displayed clearly.
+- Diagnostics are handled safely.
+- The user can execute the program again.
+- Long-running tasks do not freeze the entire interface unnecessarily.
+- Missing runtime resources produce understandable errors.
+
+Test a simple program:
+
+print("Hello from RunStack")
+
+Also test:
+
+name = "RunStack"
+for i in range(3):
+    print(name, i)
+
+The output should appear in the console.
+
+Do not pretend browser-based Python is a complete native Python installation.
+
+If the current Python runtime cannot execute a particular library or operation, report the limitation.
+
+Preserve the existing status, diagnostic, and execution-result types.
+
+==================================================
+11. SQL EXECUTION
+==================================================
+
+Inspect the existing SQL engine and its connection to the workspace.
+
+Verify that:
+- SQL source files are editable.
+- Queries can be executed using the supported engine.
+- Query output is displayed correctly.
+- SQL errors are displayed clearly.
+- Repeated queries work.
+- The output panel can be opened automatically when appropriate.
+- Execution status is accurate.
+
+Test a basic query such as:
+
+SELECT 'Hello from RunStack' AS message;
+
+If the existing SQL engine supports table creation, also test:
+
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY,
+  name TEXT
+);
+
+INSERT INTO users (name)
+VALUES ('Michael');
+
+SELECT * FROM users;
+
+Respect the actual capabilities of the existing SQL engine.
+
+Do not claim that an external database is connected if the application only uses an in-browser database.
+
+==================================================
+12. EXECUTION CONTAINERS AND SANDBOXING
+==================================================
+
+Some code execution features or languages may not yet have a proper execution container.
+
+Inspect the existing implementation and identify which runtimes are fully implemented, partially implemented, or missing.
+
+Build or repair the execution environment for each supported language where feasible.
+
+Do not use one execution method for every language.
+
+Use an appropriate execution strategy for each project type.
+
+For browser-based web projects, use an appropriately isolated iframe or the existing preview sandbox.
+
+For Python, use the existing browser-compatible runtime where appropriate.
+
+For SQL, use the existing supported SQL engine.
+
+For React and TypeScript, use the appropriate transformation and build pipeline.
+
+For Node.js, do not pretend that browser JavaScript is equivalent to a full Node.js runtime.
+
+If actual Node.js execution requires a backend or remote execution service, inspect the existing infrastructure first.
+
+Do not invent a backend that does not exist.
+
+Do not expose server credentials, API keys, or privileged environment variables in client-side code.
+
+Never execute untrusted user code directly inside the privileged RunStack application context.
+
+Where appropriate:
+- Isolate execution from the main application.
+- Separate user-code output from application diagnostics.
+- Apply timeouts or cancellation where feasible.
+- Prevent accidental access to privileged application state.
+- Handle runtime failures without crashing the editor.
+- Make unsupported runtime capabilities explicit.
+
+Do not describe a simple iframe as a secure operating-system-level container.
+
+Use accurate labels for the level of isolation actually provided.
+
+If a runtime is not yet available, display a clear, honest explanation and preserve the source code rather than showing a fake successful result.
+
+==================================================
+13. OUTPUT, CONSOLE, AND ERROR PANEL
+==================================================
+
+Repair the DeveloperPanel and associated workspace state.
+
+Verify:
+- Console messages display in the correct order.
+- Standard output is distinguishable from errors.
+- Runtime errors are visible.
+- Build errors are visible.
+- Diagnostics are associated with the appropriate file when possible.
+- Clearing the console works.
+- Running code again updates the appropriate results.
+- Previous output does not incorrectly appear to be the latest execution result.
+- Opening the error panel works.
+- Opening the output panel works.
+- Collapsing and expanding the panel works.
+- The panel remains usable on mobile.
+
+Use correct loading, success, and error states.
+
+Do not silently discard errors.
+
+Do not allow repeated runs to create uncontrolled duplicate event listeners or stale results.
+
+Ensure asynchronous execution results cannot incorrectly overwrite newer results when multiple runs occur.
+
+==================================================
+14. FILE MANAGEMENT AND PROJECT TABS
+==================================================
+
+Inspect FileExplorer, EditorTabs, project types, and file operations.
+
+Verify the supported behavior of:
+- Opening files.
+- Switching between tabs.
+- Creating files.
+- Renaming files.
+- Deleting files.
+- Updating file contents.
+- Preserving unsaved changes.
+- Saving projects.
+- Restoring saved projects.
+- Handling empty projects.
+- Handling missing active files.
+- Importing projects where supported.
+- Exporting projects where supported.
+
+Do not allow file operations to leave the editor pointing to a deleted or nonexistent file.
+
+Make sure the active file, selected tab, language mode, and execution target stay synchronized.
+
+When switching between HTML, CSS, JavaScript, Python, SQL, and other supported files, update the editor configuration correctly.
+
+Preserve the existing project data structure unless a migration is genuinely necessary.
+
+If storage changes are required, maintain compatibility with existing user projects wherever possible.
+
+==================================================
+15. COMPLETE INCOMPLETE FEATURES
+==================================================
+
+Audit the existing interface for controls and features that are unfinished.
+
+Look for:
+- Buttons with no event handler.
+- Controls that only change their appearance.
+- Missing modal functionality.
+- Incomplete file operations.
+- Broken tabs.
+- Unimplemented editor controls.
+- Incorrect language labels.
+- Missing runtime integration.
+- Incomplete settings.
+- Incorrect preview refresh behavior.
+- Dead navigation.
+- Broken responsive controls.
+- Missing error handling.
+- Incomplete import/export actions.
+
+Complete the existing intended behavior where feasible.
+
+Do not add random features unrelated to RunStack.
+
+Do not remove existing functionality simply because it is difficult to repair.
+
+If a feature genuinely depends on an external service or backend that is not configured, identify the dependency and implement the parts that can work safely with the current architecture.
+
+Do not create fake integrations, fake database connections, fake authentication, fake execution results, or fake save confirmations.
+
+==================================================
+16. PRESERVE THE EXISTING DESIGN
+==================================================
+
+Keep the RunStack identity and existing visual direction.
+
+Improve usability without performing an unnecessary redesign.
+
+Maintain:
+- A clear coding workspace.
+- A readable code editor.
+- A useful preview area.
+- Accessible controls.
+- Clear file tabs.
+- A usable output panel.
+- Responsive mobile navigation.
+- Consistent spacing.
+- Appropriate loading indicators.
+- Useful error messages.
+
+Avoid excessive animations that interfere with typing or cause lag on low-powered Android devices.
+
+Optimize the application for phones with limited memory and processing power.
+
+Avoid unnecessary dependencies and oversized components.
+
+Do not remove working editor, preview, project, or developer-panel functionality to simplify the code.
+
+==================================================
+17. CODE QUALITY AND REPAIR RULES
+==================================================
+
+Follow these rules throughout implementation:
+
+1. Inspect before modifying.
+2. Repair the actual root cause of each bug.
+3. Preserve working features.
+4. Use the existing project architecture where possible.
+5. Keep TypeScript types correct.
+6. Avoid duplicated JSX.
+7. Avoid duplicated event handlers.
+8. Remove genuinely obsolete code only when it is safe to do so.
+9. Avoid broad any types when proper types are available.
+10. Clean up timers, event listeners, and subscriptions.
+11. Prevent stale asynchronous results.
+12. Avoid unnecessary global CSS changes.
+13. Preserve project compatibility.
+14. Do not hardcode fake output.
+15. Do not suppress compilation errors to make the build appear successful.
+16. Do not leave broken placeholder handlers.
+17. Do not claim a feature works unless it has been verified.
+18. Do not overwrite important project functionality with a simplified example.
+
+Pay particular attention to Workspace.tsx.
+
+If it contains duplicated rendering blocks or malformed JSX, carefully reconstruct the intended component using the existing state, handlers, imports, and established interface.
+
+Do not delete valid functionality merely to remove the parser error.
+
+After repairing the file, inspect the complete component again.
+
+Verify that every JSX element is correctly opened and closed, every callback is correctly typed, and every referenced variable or function exists.
+
+==================================================
+18. REQUIRED TESTING
+==================================================
+
+After implementation, run the available project checks.
+
+At minimum, perform the following where the repository supports them:
+
+- Install or resolve dependencies according to the project's existing package manager.
+- Run the TypeScript checks.
+- Run the production build.
+- Run existing automated tests.
+- Fix errors caused by the changes.
+- Recheck Workspace.tsx.
+- Recheck editor and preview integration.
+- Recheck Python execution.
+- Recheck SQL execution.
+- Recheck project file operations.
+- Recheck responsive layout.
+
+Perform manual or automated tests for these scenarios:
+
+TEST 1: SINGLE-FILE HTML
+
+Create an HTML document with a heading, CSS, and a JavaScript button.
+
+Run it.
+
+Confirm that the rendered page appears and the button works.
+
+TEST 2: MULTI-FILE HTML
+
+Create:
+- index.html
+- styles.css
+- script.js
+
+Confirm that the stylesheet and JavaScript are connected correctly.
+
+TEST 3: EDITING
+
+Select text in the middle of a file, copy it, paste it elsewhere, delete a section, and undo the change.
+
+Confirm that the document updates correctly.
+
+TEST 4: LONG FILE
+
+Open a long source file and scroll to the bottom.
+
+Confirm that the final lines can be viewed and edited.
+
+TEST 5: ANDROID KEYBOARD
+
+Open Editor Only on a narrow mobile viewport.
+
+Tap near the bottom of a long source file.
+
+Open the virtual keyboard.
+
+Confirm that the cursor and active code remain visible and that the editor can scroll correctly.
+
+TEST 6: PYTHON
+
+Run:
+
+print("Hello from RunStack")
+
+Confirm that the output appears correctly.
+
+TEST 7: SQL
+
+Run a simple SELECT statement.
+
+Confirm that the result appears in the output panel.
+
+TEST 8: JAVASCRIPT ERROR
+
+Run JavaScript that produces an error.
+
+Confirm that the error is reported without crashing the workspace.
+
+TEST 9: TAB SWITCHING
+
+Edit one file, switch to another file, then return to the original file.
+
+Confirm that the changes have not been lost.
+
+TEST 10: BUILD
+
+Run the production build and verify that the JSX parsing error and any additional errors introduced by the repair have been resolved.
+
+TEST 11: PREVIEW AND SCROLLING
+
+Use the editor and preview side by side.
+
+Confirm that both are accessible and that the preview can display a long webpage.
+
+TEST 12: UNSUPPORTED RUNTIME
+
+Attempt to use a runtime that is not configured.
+
+Confirm that the interface reports the limitation honestly and does not display fake successful output.
+
+==================================================
+19. IMPLEMENTATION ORDER
+==================================================
+
+Work in this order:
+
+PHASE 1:
+Inspect the repository and identify the root causes of the existing build and workspace problems.
+
+PHASE 2:
+Repair Workspace.tsx and all compilation errors directly related to the workspace.
+
+PHASE 3:
+Repair the editor's editing, selection, copy/paste, scrolling, and state synchronization.
+
+PHASE 4:
+Repair split view, preview behavior, and mobile virtual-keyboard handling.
+
+PHASE 5:
+Correct file classification and single-file HTML execution.
+
+PHASE 6:
+Repair the existing JavaScript, TypeScript, React, Python, and SQL execution pipelines according to the project's actual capabilities.
+
+PHASE 7:
+Repair console output, diagnostics, file operations, storage, and other incomplete features.
+
+PHASE 8:
+Run the available checks, fix remaining regressions, and report the actual results.
+
+Do not stop after producing a plan.
+
+Do not stop after fixing only the first compilation error.
+
+Continue until the available implementation and verification work is complete.
+
+==================================================
+20. FINAL RESPONSE REQUIREMENTS
+==================================================
+
+When you finish, provide a concise but specific report containing:
+
+1. The root cause of the Workspace.tsx parsing problem.
+2. The files changed.
+3. The editor improvements implemented.
+4. The mobile keyboard and scrolling improvements implemented.
+5. The split-view and preview improvements implemented.
+6. The HTML single-file and multi-file behavior implemented.
+7. The language runtimes repaired.
+8. The incomplete features completed.
+9. The build and test results.
+10. Any remaining limitations that require additional infrastructure.
+
+Distinguish between features that were implemented, features that were tested successfully, and features that remain incomplete.
+
+Do not claim that all tests passed unless they actually passed.
+
+BEGIN BY INSPECTING THE EXISTING RUNSTACK CODEBASE, THEN IMPLEMENT THE REPAIRS DIRECTLY IN THE PROJECT.

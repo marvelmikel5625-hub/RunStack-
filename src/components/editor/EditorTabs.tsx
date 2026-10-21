@@ -1,9 +1,29 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ProjectFile } from '../../types/project';
 import {
-  X, Plus, FileCode, Globe, Palette, Terminal, Database, FileText,
-  Search, Sparkles, Sun, Moon, MoreVertical, Copy, Scissors, Clipboard,
-  Undo2, Redo2, Trash2, Type, CaseSensitive, Replace, CheckSquare,
+  X,
+  Plus,
+  FileCode,
+  Globe,
+  Palette,
+  Terminal,
+  Database,
+  FileText,
+  Search,
+  Replace,
+  Sparkles,
+  Sun,
+  Moon,
+  Undo2,
+  Redo2,
+  WrapText,
+  Hash,
+  Download,
+  ZoomIn,
+  ZoomOut,
+  MoreHorizontal,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface EditorTabsProps {
@@ -13,69 +33,77 @@ interface EditorTabsProps {
   onCloseTab?: (fileId: string) => void;
   onNewFileClick?: () => void;
   dirtyFileIds?: Set<string>;
-  onTriggerFind?: () => void;
-  onFormatDocument?: () => void;
-  theme?: 'vs' | 'vs-dark';
-  onToggleTheme?: () => void;
-  // New actions
-  onSelectAll?: () => void;
-  onCopy?: () => void;
-  onCut?: () => void;
-  onPaste?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
-  onClearActiveFile?: () => void;
-  onReplace?: () => void;
-  onIncreaseFont?: () => void;
-  onDecreaseFont?: () => void;
-  onToggleWordWrap?: () => void;
+  onSelectAll?: () => void;
+  onCopySelection?: () => void;
+  onTriggerFind?: () => void;
+  onTriggerReplace?: () => void;
+  onFormatDocument?: () => void;
   wordWrap?: 'on' | 'off';
+  onToggleWordWrap?: () => void;
+  lineNumbers?: 'on' | 'off';
+  onToggleLineNumbers?: () => void;
+  fontSize?: number;
+  onChangeFontSize?: (delta: number) => void;
+  onDownloadCurrentFile?: () => void;
+  theme?: 'vs' | 'vs-dark';
+  onToggleTheme?: () => void;
 }
 
 export const EditorTabs: React.FC<EditorTabsProps> = ({
-  files, activeFileId, onSelectTab, onCloseTab, onNewFileClick,
-  dirtyFileIds = new Set(), onTriggerFind, onFormatDocument, theme, onToggleTheme,
-  onSelectAll, onCopy, onCut, onPaste, onUndo, onRedo, onClearActiveFile,
-  onReplace, onIncreaseFont, onDecreaseFont, onToggleWordWrap, wordWrap,
+  files,
+  activeFileId,
+  onSelectTab,
+  onCloseTab,
+  onNewFileClick,
+  dirtyFileIds = new Set(),
+  onUndo,
+  onRedo,
+  onSelectAll,
+  onCopySelection,
+  onTriggerFind,
+  onTriggerReplace,
+  onFormatDocument,
+  wordWrap = 'on',
+  onToggleWordWrap,
+  lineNumbers = 'on',
+  onToggleLineNumbers,
+  fontSize = 14,
+  onChangeFontSize,
+  onDownloadCurrentFile,
+  theme,
+  onToggleTheme,
 }) => {
-  const [actionsOpen, setActionsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!actionsOpen) return;
-    const onDocClick = (e: MouseEvent | TouchEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setActionsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('touchstart', onDocClick);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('touchstart', onDocClick);
-    };
-  }, [actionsOpen]);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
   const getFileIcon = (fileName: string) => {
     if (fileName.endsWith('.html')) return <Globe className="w-3.5 h-3.5 text-orange-500 shrink-0" />;
     if (fileName.endsWith('.css')) return <Palette className="w-3.5 h-3.5 text-blue-500 shrink-0" />;
-    if (fileName.endsWith('.js') || fileName.endsWith('.ts')) return <FileCode className="w-3.5 h-3.5 text-amber-500 shrink-0" />;
+    if (fileName.endsWith('.js') || fileName.endsWith('.mjs')) return <FileCode className="w-3.5 h-3.5 text-amber-500 shrink-0" />;
+    if (fileName.endsWith('.ts') || fileName.endsWith('.tsx') || fileName.endsWith('.jsx')) return <FileCode className="w-3.5 h-3.5 text-cyan-600 shrink-0" />;
     if (fileName.endsWith('.py')) return <Terminal className="w-3.5 h-3.5 text-emerald-600 shrink-0" />;
     if (fileName.endsWith('.sql')) return <Database className="w-3.5 h-3.5 text-cyan-600 shrink-0" />;
     return <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />;
   };
 
-  const run = (fn?: () => void) => {
-    if (fn) fn();
-    setActionsOpen(false);
+  const handleCopy = () => {
+    if (onCopySelection) {
+      onCopySelection();
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 1500);
+    }
   };
 
   return (
     <div className="flex items-center justify-between bg-slate-100 border-b border-slate-200 h-9 px-1 select-none shrink-0 overflow-hidden">
+      {/* Scrollable Tabs */}
       <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar flex-1 mr-2">
         {files.map((file) => {
           const isActive = file.id === activeFileId;
           const isDirty = dirtyFileIds.has(file.id);
+
           return (
             <div
               key={file.id}
@@ -89,12 +117,19 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
             >
               {getFileIcon(file.name)}
               <span className="truncate">{file.name}</span>
-              {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" title="Unsaved changes" />}
+
+              {isDirty && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" title="Unsaved changes" />
+              )}
+
               {onCloseTab && files.length > 1 && (
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); onCloseTab(file.id); }}
-                  className="p-0.5 rounded-xs text-slate-400 hover:text-slate-700 hover:bg-slate-200 opacity-60 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCloseTab(file.id);
+                  }}
+                  className="p-0.5 rounded-xs text-slate-400 hover:text-slate-700 hover:bg-slate-200 opacity-60 group-hover:opacity-100 transition-opacity cursor-pointer"
                   title="Close tab"
                 >
                   <X className="w-3 h-3" />
@@ -103,10 +138,11 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
             </div>
           );
         })}
+
         {onNewFileClick && (
           <button
             onClick={onNewFileClick}
-            className="p-1 ml-0.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-md transition-colors shrink-0"
+            className="p-1 ml-0.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-md transition-colors shrink-0 cursor-pointer"
             title="Create new file tab"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -114,60 +150,220 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
         )}
       </div>
 
-      <div className="flex items-center gap-1 shrink-0">
+      {/* Editor Controls Bar */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        {/* Undo / Redo */}
+        {onUndo && (
+          <button
+            onClick={onUndo}
+            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {onRedo && (
+          <button
+            onClick={onRedo}
+            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+            title="Redo (Ctrl+Y)"
+          >
+            <Redo2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* Find & Replace */}
         {onTriggerFind && (
-          <button onClick={onTriggerFind} className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors" title="Search & Find (Ctrl+F)">
+          <button
+            onClick={onTriggerFind}
+            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+            title="Search & Find in Editor (Ctrl+F)"
+          >
             <Search className="w-3.5 h-3.5" />
           </button>
         )}
+        {onTriggerReplace && (
+          <button
+            onClick={onTriggerReplace}
+            className="hidden sm:inline-flex p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+            title="Find and Replace (Ctrl+H)"
+          >
+            <Replace className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* Format Document */}
         {onFormatDocument && (
-          <button onClick={onFormatDocument} className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors hidden sm:inline-flex" title="Format Document">
+          <button
+            onClick={onFormatDocument}
+            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors hidden md:inline-flex cursor-pointer"
+            title="Format Code Document"
+          >
             <Sparkles className="w-3.5 h-3.5" />
           </button>
         )}
-        {onToggleTheme && (
-          <button onClick={onToggleTheme} className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors" title={`Switch to ${theme === 'vs' ? 'Dark' : 'Light'} Theme`}>
-            {theme === 'vs' ? <Moon className="w-3.5 h-3.5 text-slate-600" /> : <Sun className="w-3.5 h-3.5 text-amber-500" />}
+
+        {/* Word Wrap Toggle */}
+        {onToggleWordWrap && (
+          <button
+            onClick={onToggleWordWrap}
+            className={`hidden md:inline-flex p-1.5 rounded-md transition-colors cursor-pointer ${
+              wordWrap === 'on'
+                ? 'bg-blue-100 text-blue-700 font-bold'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
+            }`}
+            title={`Word Wrap: ${wordWrap === 'on' ? 'Enabled' : 'Disabled'}`}
+          >
+            <WrapText className="w-3.5 h-3.5" />
           </button>
         )}
 
-        {/* Editor Actions Menu */}
-        <div className="relative" ref={menuRef}>
+        {/* Line Numbers Toggle */}
+        {onToggleLineNumbers && (
           <button
-            onClick={() => setActionsOpen((v) => !v)}
-            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors"
-            title="Editor Actions"
-            aria-haspopup="menu"
-            aria-expanded={actionsOpen}
+            onClick={onToggleLineNumbers}
+            className={`hidden lg:inline-flex p-1.5 rounded-md transition-colors cursor-pointer ${
+              lineNumbers === 'on'
+                ? 'bg-blue-100 text-blue-700 font-bold'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
+            }`}
+            title={`Line Numbers: ${lineNumbers === 'on' ? 'Visible' : 'Hidden'}`}
           >
-            <MoreVertical className="w-3.5 h-3.5" />
+            <Hash className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* Font Size decrease / increase */}
+        {onChangeFontSize && (
+          <div className="hidden lg:flex items-center gap-0.5 bg-slate-200/60 p-0.5 rounded-md">
+            <button
+              onClick={() => onChangeFontSize(-1)}
+              className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded-xs transition-colors cursor-pointer"
+              title="Decrease Font Size"
+            >
+              <ZoomOut className="w-3 h-3" />
+            </button>
+            <span className="text-[10px] font-mono px-1 text-slate-600">{fontSize}</span>
+            <button
+              onClick={() => onChangeFontSize(1)}
+              className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded-xs transition-colors cursor-pointer"
+              title="Increase Font Size"
+            >
+              <ZoomIn className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
+        {/* Download File */}
+        {onDownloadCurrentFile && (
+          <button
+            onClick={onDownloadCurrentFile}
+            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors hidden sm:inline-flex cursor-pointer"
+            title="Download Active File"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* Theme Toggle */}
+        {onToggleTheme && (
+          <button
+            onClick={onToggleTheme}
+            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+            title={`Switch to ${theme === 'vs' ? 'Dark' : 'Light'} Editor Theme`}
+          >
+            {theme === 'vs' ? (
+              <Moon className="w-3.5 h-3.5 text-slate-600" />
+            ) : (
+              <Sun className="w-3.5 h-3.5 text-amber-500" />
+            )}
+          </button>
+        )}
+
+        {/* More Menu Dropdown for mobile and compact screens */}
+        <div className="relative">
+          <button
+            onClick={() => setShowMoreMenu(!showMoreMenu)}
+            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+            title="More Editor Options"
+          >
+            <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
 
-          {actionsOpen && (
-            <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 text-xs" role="menu">
-              <MenuItem icon={<CheckSquare className="w-3.5 h-3.5" />} label="Select All" shortcut="Ctrl+A" onClick={() => run(onSelectAll)} />
-              <MenuItem icon={<Copy className="w-3.5 h-3.5" />} label="Copy" shortcut="Ctrl+C" onClick={() => run(onCopy)} />
-              <MenuItem icon={<Scissors className="w-3.5 h-3.5" />} label="Cut" shortcut="Ctrl+X" onClick={() => run(onCut)} />
-              <MenuItem icon={<Clipboard className="w-3.5 h-3.5" />} label="Paste" shortcut="Ctrl+V" onClick={() => run(onPaste)} />
-              <MenuItem icon={<Replace className="w-3.5 h-3.5" />} label="Replace" shortcut="Ctrl+H" onClick={() => run(onReplace)} />
-              <div className="border-t border-slate-100 my-1" />
-              <MenuItem icon={<Undo2 className="w-3.5 h-3.5" />} label="Undo" shortcut="Ctrl+Z" onClick={() => run(onUndo)} />
-              <MenuItem icon={<Redo2 className="w-3.5 h-3.5" />} label="Redo" shortcut="Ctrl+Y" onClick={() => run(onRedo)} />
-              <div className="border-t border-slate-100 my-1" />
-              <MenuItem icon={<Type className="w-3.5 h-3.5" />} label="Increase Font" onClick={() => run(onIncreaseFont)} />
-              <MenuItem icon={<Type className="w-3.5 h-3.5 rotate-180" />} label="Decrease Font" onClick={() => run(onDecreaseFont)} />
-              <MenuItem
-                icon={<CaseSensitive className="w-3.5 h-3.5" />}
-                label={`Word Wrap: ${wordWrap === 'on' ? 'ON' : 'OFF'}`}
-                onClick={() => run(onToggleWordWrap)}
-              />
-              <div className="border-t border-slate-100 my-1" />
-              <MenuItem
-                icon={<Trash2 className="w-3.5 h-3.5 text-red-600" />}
-                label="Clear Active File"
-                onClick={() => run(onClearActiveFile)}
-                danger
-              />
+          {showMoreMenu && (
+            <div className="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 text-xs">
+              {onSelectAll && (
+                <button
+                  onClick={() => {
+                    onSelectAll();
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 text-slate-700 cursor-pointer"
+                >
+                  <span>Select All</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Ctrl+A</span>
+                </button>
+              )}
+              {onCopySelection && (
+                <button
+                  onClick={() => {
+                    handleCopy();
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 text-slate-700 cursor-pointer"
+                >
+                  <span>{copyFeedback ? 'Copied!' : 'Copy Code'}</span>
+                  {copyFeedback ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-slate-400" />}
+                </button>
+              )}
+              {onFormatDocument && (
+                <button
+                  onClick={() => {
+                    onFormatDocument();
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-50 text-slate-700 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Format Code</span>
+                </button>
+              )}
+              {onToggleWordWrap && (
+                <button
+                  onClick={() => {
+                    onToggleWordWrap();
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 text-slate-700 cursor-pointer"
+                >
+                  <span>Word Wrap</span>
+                  <span className="text-[10px] text-blue-600 font-semibold">{wordWrap === 'on' ? 'ON' : 'OFF'}</span>
+                </button>
+              )}
+              {onToggleLineNumbers && (
+                <button
+                  onClick={() => {
+                    onToggleLineNumbers();
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 text-slate-700 cursor-pointer"
+                >
+                  <span>Line Numbers</span>
+                  <span className="text-[10px] text-blue-600 font-semibold">{lineNumbers === 'on' ? 'ON' : 'OFF'}</span>
+                </button>
+              )}
+              {onDownloadCurrentFile && (
+                <button
+                  onClick={() => {
+                    onDownloadCurrentFile();
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-50 text-slate-700 border-t border-slate-100 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Download This File</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -175,26 +371,3 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
     </div>
   );
 };
-
-const MenuItem: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  shortcut?: string;
-  onClick?: () => void;
-  danger?: boolean;
-}> = ({ icon, label, shortcut, onClick, danger }) => (
-  <button
-    type="button"
-    role="menuitem"
-    onClick={onClick}
-    className={`w-full px-3 py-1.5 text-left flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors ${
-      danger ? 'text-red-700' : 'text-slate-700'
-    }`}
-  >
-    <span className="flex items-center gap-2">
-      <span className={danger ? 'text-red-600' : 'text-slate-500'}>{icon}</span>
-      <span>{label}</span>
-    </span>
-    {shortcut && <span className="text-[10px] text-slate-400 font-mono">{shortcut}</span>}
-  </button>
-);

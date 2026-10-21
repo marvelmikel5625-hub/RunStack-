@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Project, ProjectFile, EditorSettings, SupportedLanguage } from '../../types/project';
 import {
-  ConsoleMessage, Diagnostic, ExecutionResult, AnimationInfo, NetworkRequestInfo,
+  ConsoleMessage,
+  Diagnostic,
+  ExecutionResult,
+  AnimationInfo,
+  NetworkRequestInfo,
 } from '../../types/diagnostics';
 import { CodeEditor, CodeEditorHandle } from '../editor/CodeEditor';
 import { EditorTabs } from '../editor/EditorTabs';
@@ -13,15 +17,33 @@ import { ZipImportModal } from '../modals/ZipImportModal';
 import { RunStackLogo } from '../common/RunStackLogo';
 import { SUPPORTED_LANGUAGES, STARTER_TEMPLATES } from '../../services/languages';
 import { validateProjectFiles } from '../../services/diagnostics/validator';
-import { pythonEngine } from '../../services/execution/pythonEngine';
+import { pythonEngine, PythonEngineStatus } from '../../services/execution/pythonEngine';
 import { sqlEngine } from '../../services/execution/sqlEngine';
 import { exportProjectToZip, downloadSingleFile } from '../../services/zip/zipManager';
 import { saveProject } from '../../services/storage/indexedDb';
 
 import {
-  Play, Save, Download, Settings, FolderTree, ChevronDown, Layers, ArrowLeft,
-  Check, AlertCircle, Columns2, PanelBottom, PanelRight, MoreHorizontal,
-  RotateCcw, CheckCircle2, AlertOctagon, Loader2,
+  Play,
+  Save,
+  Download,
+  Settings,
+  FolderTree,
+  ChevronDown,
+  Layers,
+  ArrowLeft,
+  Check,
+  AlertCircle,
+  Maximize2,
+  Minimize2,
+  Columns2,
+  PanelBottom,
+  PanelRight,
+  MoreHorizontal,
+  RotateCcw,
+  CheckCircle2,
+  AlertOctagon,
+  Clock,
+  Loader2,
 } from 'lucide-react';
 
 export type WorkspaceExecutionStatus = 'ready' | 'initializing' | 'running' | 'completed' | 'error' | 'stopped';
@@ -38,28 +60,40 @@ interface WorkspaceProps {
 }
 
 export const Workspace: React.FC<WorkspaceProps> = ({
-  project, onUpdateProject, onNavigateHome, onOpenNewProject,
-  settings, onUpdateSettings, onResetLayout, onClearAllLocalData,
+  project,
+  onUpdateProject,
+  onNavigateHome,
+  onOpenNewProject,
+  settings,
+  onUpdateSettings,
+  onResetLayout,
+  onClearAllLocalData,
 }) => {
   const activeFile = project.files.find((f) => f.id === project.activeFileId) || project.files[0];
-  const editorHandleRef = useRef<CodeEditorHandle | null>(null);
-  const editorContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // Editor ref for find & formatting actions
+  const editorHandleRef = useRef<CodeEditorHandle | null>(null);
+
+  // Dirty state tracking (unsaved changes)
   const [dirtyFileIds, setDirtyFileIds] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
 
+  // Execution Status State
   const [executionStatus, setExecutionStatus] = useState<WorkspaceExecutionStatus>('ready');
   const [statusMessage, setStatusMessage] = useState<string>('Ready');
 
+  // Layout states
   const [showExplorer, setShowExplorer] = useState(false);
-  const [editorSplitPercent, setEditorSplitPercent] = useState<number>(50);
+  const [editorSplitPercent, setEditorSplitPercent] = useState<number>(50); // % width for editor on desktop
   const [isResizingSplit, setIsResizingSplit] = useState(false);
   const [maximizedArea, setMaximizedArea] = useState<'none' | 'editor' | 'preview' | 'panel'>('none');
 
+  // Mobile dedicated view mode ('split' | 'editor' | 'preview' | 'panel')
   const [mobileView, setMobileView] = useState<'split' | 'editor' | 'preview' | 'panel'>('split');
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
 
+  // Runtime & Diagnostics state
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([]);
   const [staticDiagnostics, setStaticDiagnostics] = useState<Diagnostic[]>([]);
   const [runtimeErrors, setRuntimeErrors] = useState<Diagnostic[]>([]);
@@ -69,6 +103,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [networkRequests, setNetworkRequests] = useState<NetworkRequestInfo[]>([]);
   const [jumpToLine, setJumpToLine] = useState<{ line: number; column?: number; timestamp: number } | null>(null);
 
+  // Animation controller for live preview
+  const handleControlAnimation = (action: 'pause' | 'play' | 'restart' | 'rate', rate?: number) => {
+    const iframe = document.querySelector('iframe');
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(
+        {
+          target: 'RUNSTACK_SANDBOX',
+          action: 'CONTROL_ANIMATION',
+          payload: { action, rate },
+        },
+        '*'
+      );
+    }
+  };
+
+  // Modals & Menus state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isZipImportOpen, setIsZipImportOpen] = useState(false);
   const [isLanguageSelectOpen, setIsLanguageSelectOpen] = useState(false);
@@ -76,64 +126,69 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [unsupportedNotice, setUnsupportedNotice] = useState<string | null>(null);
 
   const mainSplitRef = useRef<HTMLDivElement | null>(null);
-  const isMobileKeyboardOpenRef = useRef<boolean>(false);
 
-  // --- Auto-switch to editor view on mobile when the keyboard opens ---
+  // Visual Viewport tracking for mobile virtual keyboard responsiveness
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+
   useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
     const vv = window.visualViewport;
 
-    const handleViewportResize = () => {
-      if (window.innerWidth >= 768) return;
-      const keyboardLikelyOpen = vv.height < window.innerHeight - 120;
-      if (keyboardLikelyOpen && !isMobileKeyboardOpenRef.current) {
-        isMobileKeyboardOpenRef.current = true;
-        // Only switch if user was in split or preview — don't disturb if already editing
-        setMobileView((cur) => (cur === 'split' || cur === 'preview') ? 'editor' : cur);
-      } else if (!keyboardLikelyOpen && isMobileKeyboardOpenRef.current) {
-        isMobileKeyboardOpenRef.current = false;
-      }
+    const updateHeight = () => {
+      setViewportHeight(vv.height);
     };
 
-    vv.addEventListener('resize', handleViewportResize);
-    return () => vv.removeEventListener('resize', handleViewportResize);
+    vv.addEventListener('resize', updateHeight);
+    vv.addEventListener('scroll', updateHeight);
+    return () => {
+      vv.removeEventListener('resize', updateHeight);
+      vv.removeEventListener('scroll', updateHeight);
+    };
   }, []);
 
-  // --- Debounced validation (250ms) to reduce typing lag ---
-  const validationTimerRef = useRef<number | null>(null);
+  // Revalidate files whenever content changes and clear obsolete diagnostics
   useEffect(() => {
-    if (validationTimerRef.current) window.clearTimeout(validationTimerRef.current);
-    validationTimerRef.current = window.setTimeout(() => {
-      const staticDiags = validateProjectFiles(project.files);
-      setStaticDiagnostics(staticDiags);
-      if (staticDiags.some((d) => d.severity === 'error')) {
-        setExecutionStatus('error');
-        setStatusMessage('Syntax error detected');
-      } else if (executionStatus === 'error' && runtimeErrors.length === 0) {
-        setExecutionStatus('ready');
-        setStatusMessage('Ready');
-      }
-    }, 250);
-    return () => {
-      if (validationTimerRef.current) window.clearTimeout(validationTimerRef.current);
-    };
+    const staticDiags = validateProjectFiles(project.files);
+    setStaticDiagnostics(staticDiags);
+
+    // If there are static syntax errors, update execution status to error
+    if (staticDiags.some((d) => d.severity === 'error')) {
+      setExecutionStatus('error');
+      setStatusMessage('Syntax error detected');
+    } else if (executionStatus === 'error' && runtimeErrors.length === 0) {
+      setExecutionStatus('ready');
+      setStatusMessage('Ready');
+    }
   }, [project.files]);
 
+  // Handle Code Change in active file
   const handleContentChange = (newContent: string) => {
     if (!activeFile) return;
+
     const updatedFiles = project.files.map((file) =>
       file.id === activeFile.id
         ? { ...file, content: newContent, updatedAt: Date.now() }
         : file
     );
+
     setDirtyFileIds((prev) => new Set(prev).add(activeFile.id));
-    onUpdateProject({ ...project, files: updatedFiles, updatedAt: Date.now() });
+
+    onUpdateProject({
+      ...project,
+      files: updatedFiles,
+      updatedAt: Date.now(),
+    });
   };
 
+  // Switch active tab/file
   const handleSelectFile = (fileId: string) => {
-    onUpdateProject({ ...project, activeFileId: fileId });
+    onUpdateProject({
+      ...project,
+      activeFileId: fileId,
+    });
   };
 
+  // Close tab
   const handleCloseTab = (fileId: string) => {
     if (project.files.length <= 1) return;
     const remaining = project.files.filter((f) => f.id !== fileId);
@@ -144,19 +199,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     });
   };
 
+  // Create new file
   const handleCreateFile = (path: string) => {
     const fileName = path.split('/').pop() || 'untitled.js';
     const ext = fileName.split('.').pop()?.toLowerCase();
     const language =
       ext === 'html' ? 'html' : ext === 'css' ? 'css' : ext === 'py' ? 'python' : ext === 'sql' ? 'sql' : 'javascript';
+
     const newFile: ProjectFile = {
       id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: fileName,
       path: path.trim(),
-      content: '',
+      content: `// ${path}\n`,
       language,
       updatedAt: Date.now(),
     };
+
     onUpdateProject({
       ...project,
       files: [...project.files, newFile],
@@ -165,6 +223,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     });
   };
 
+  // Delete file
   const handleDeleteFile = (fileId: string) => {
     if (project.files.length <= 1) return;
     const remaining = project.files.filter((f) => f.id !== fileId);
@@ -176,14 +235,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     });
   };
 
+  // Rename file
   const handleRenameFile = (fileId: string, newPath: string) => {
     const fileName = newPath.split('/').pop() || 'renamed';
     const updated = project.files.map((f) =>
       f.id === fileId ? { ...f, name: fileName, path: newPath, updatedAt: Date.now() } : f
     );
-    onUpdateProject({ ...project, files: updated, updatedAt: Date.now() });
+    onUpdateProject({
+      ...project,
+      files: updated,
+      updatedAt: Date.now(),
+    });
   };
 
+  // Save Project to IndexedDB
   const handleSaveProject = async () => {
     setIsSaving(true);
     try {
@@ -198,6 +263,25 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
+  // Keyboard shortcut listener (Ctrl+S, Ctrl+Enter, Ctrl+F)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveProject();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleRun();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        editorHandleRef.current?.triggerFind();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [project, stdinValue]);
+
+  // Execute Code based on language
   const handleRun = async () => {
     const currentLang = project.language;
     const langInfo = SUPPORTED_LANGUAGES.find((l) => l.id === currentLang);
@@ -211,721 +295,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       return;
     }
 
+    setExecutionStatus('running');
+    setStatusMessage('Running...');
+
     if (currentLang === 'python') {
       onUpdateSettings({ activePanelTab: 'output', isPanelCollapsed: false });
       const pythonFile = project.files.find((f) => f.path.endsWith('.py')) || activeFile;
+
       setExecutionStatus('initializing');
-      setStatusMessage('Initializing Pyodide WebAssembly...');
-      const { result, diagnostics: pyDiags } = await pythonEngine.runPython(
-        pythonFile?.content || '',
-        (chunk, isErr) => {
-          setConsoleMessages((prev) => [...prev, {
-            id: 'py_out_' + Date.now() + Math.random(),
-            type: isErr ? 'error' : 'log',
-            text: chunk.trim(),
-            timestamp: Date.now(),
-          }]);
-        },
-        stdinValue
-      );
-      setExecutionResult(result);
-      setExecutionStatus(result.success ? 'completed' : 'error');
-      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Execution failed');
-      if (pyDiags.length > 0) {
-        setRuntimeErrors((prev) => [...prev, ...pyDiags]);
-        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
-      }
-    } else if (currentLang === 'sql') {
-      onUpdateSettings({ activePanelTab: 'output', isPanelCollapsed: false });
-      const sqlFile = project.files.find((f) => f.path.endsWith('.sql')) || activeFile;
-      setExecutionStatus('running');
-      setStatusMessage('Executing SQLite query...');
-      const { result, diagnostics: sqlDiags } = await sqlEngine.runSql(sqlFile?.content || '');
-      setExecutionResult(result);
-      setExecutionStatus(result.success ? 'completed' : 'error');
-      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Query execution failed');
-      if (sqlDiags.length > 0) {
-        setRuntimeErrors((prev) => [...prev, ...sqlDiags]);
-        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
-      }
-    } else {
-      setExecutionStatus('running');
-      setStatusMessage('Compiling web bundle...');
-      const iframe = document.querySelector('iframe');
-      if (iframe) iframe.srcdoc = iframe.srcdoc;
-      setTimeout(() => {
-        setExecutionStatus('completed');
-        setStatusMessage('Live preview updated');
-      }, 300);
-    }
-  };
-
-  const handleSelectDiagnostic = (diag: Diagnostic) => {
-    const targetFile = project.files.find(
-      (f) => f.path === diag.file || f.name === diag.file || f.path.endsWith('/' + diag.file) || diag.file.endsWith(f.name)
-    );
-    if (targetFile && targetFile.id !== project.activeFileId) {
-      onUpdateProject({ ...project, activeFileId: targetFile.id });
-    }
-    setJumpToLine({ line: diag.line, column: diag.column, timestamp: Date.now() });
-    if (maximizedArea === 'panel' || maximizedArea === 'preview') setMaximizedArea('none');
-    if (mobileView !== 'editor' && mobileView !== 'split') setMobileView('editor');
-  };
-
-  const handleNavigatePreviewPage = (targetPath: string) => {
-    const clean = targetPath.replace(/^\.\//, '');
-    const matched = project.files.find(
-      (f) => f.path === clean || f.name === clean || f.path.endsWith('/' + clean) || f.path.replace(/^\/+/, '') === clean
-    );
-    if (matched) handleSelectFile(matched.id);
-  };
-
-  const handleSwitchLanguage = (newLang: SupportedLanguage) => {
-    setIsLanguageSelectOpen(false);
-    const template = STARTER_TEMPLATES[newLang];
-    if (!template) return;
-    const now = Date.now();
-    const newFiles = template.files.map((f, idx) => ({
-      id: `file_${newLang}_${idx}_${now}`,
-      name: f.name,
-      path: f.path,
-      content: f.content,
-      language: f.language,
-      updatedAt: now,
-    }));
-    onUpdateProject({ ...project, language: newLang, files: newFiles, activeFileId: newFiles[0].id, updatedAt: now });
-    setConsoleMessages([]);
-    setRuntimeErrors([]);
-    setExecutionResult(null);
-    setExecutionStatus('ready');
-    setStatusMessage('Ready');
-    setJumpToLine(null);
-    setStdinValue('');
-    setDirtyFileIds(new Set());
-  };
-
-  const handleEvaluateConsole = (code: string) => {
-    setConsoleMessages((prev) => [...prev, {
-      id: 'repl_in_' + Date.now(), type: 'info', text: `> ${code}`, timestamp: Date.now(),
-    }]);
-    const iframe = document.querySelector('iframe');
-    if (iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage({ target: 'RUNSTACK_SANDBOX', action: 'EVAL_CODE', code }, '*');
-    } else {
-      setConsoleMessages((prev) => [...prev, {
-        id: 'repl_noready_' + Date.now(),
-        type: 'warn',
-        text: 'Preview is not ready. Run your project before evaluating in the REPL.',
-        timestamp: Date.now(),
-      }]);
-    }
-  };
-
-  // --- New editor action handlers ---
-  const handleSelectAll = () => editorHandleRef.current?.selectAll();
-  const handleCopy = () => editorHandleRef.current?.copy();
-  const handleCut = () => editorHandleRef.current?.cut();
-  const handlePaste = () => editorHandleRef.current?.paste();
-  const handleUndo = () => editorHandleRef.current?.undo();
-  const handleRedo = () => editorHandleRef.current?.redo();
-  const handleReplace = () => editorHandleRef.current?.triggerReplace();
-  const handleIncreaseFont = () => onUpdateSettings({ fontSize: Math.min(28, settings.fontSize + 1) });
-  const handleDecreaseFont = () => onUpdateSettings({ fontSize: Math.max(10, settings.fontSize - 1) });
-  const handleToggleWordWrap = () => onUpdateSettings({ wordWrap: settings.wordWrap === 'on' ? 'off' : 'on' });
-
-  const handleClearActiveFile = () => {
-    if (!activeFile) return;
-    const isDirty = dirtyFileIds.has(activeFile.id);
-    if (isDirty) {
-      const confirmed = window.confirm(
-        `Clear the contents of "${activeFile.name}"? Unsaved changes in this file will be lost. Other files will not be affected.`
-      );
-      if (!confirmed) return;
-    }
-    editorHandleRef.current?.clearActiveFile();
-    // The editor's onChange will fire with "", which updates project state.
-    setRuntimeErrors((prev) => prev.filter((e) => e.file !== activeFile.path && e.file !== activeFile.name));
-  };
-
-  // --- Global keyboard shortcuts (only act when the editor has focus) ---
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const editorIsFocused = editorContainerRef.current?.contains(document.activeElement) ?? false;
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        handleSaveProject();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        handleRun();
-        return;
-      }
-      if (!editorIsFocused) return;
-
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        editorHandleRef.current?.triggerFind();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
-        e.preventDefault();
-        editorHandleRef.current?.triggerReplace();
-      }
-      // Ctrl+A/C/X/V/Z/Y are handled natively by Monaco when focused — no interception needed.
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, stdinValue, settings]);
-
-  // --- Splitter ---
-  const handleSplitterMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizingSplit(true);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  };
-  const handleSplitterMouseMove = useCallback((e: MouseEvent) => {
-    if (!isResizingSplit || !mainSplitRef.current) return;
-    const rect = mainSplitRef.current.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const percent = Math.max(20, Math.min(80, (offsetX / rect.width) * 100));
-    setEditorSplitPercent(percent);
-  }, [isResizingSplit]);
-  const handleSplitterMouseUp = useCallback(() => {
-    if (isResizingSplit) {
-      setIsResizingSplit(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-  }, [isResizingSplit]);
-  useEffect(() => {
-    if (isResizingSplit) {
-      window.addEventListener('mousemove', handleSplitterMouseMove);
-      window.addEventListener('mouseup', handleSplitterMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleSplitterMouseMove);
-      window.removeEventListener('mouseup', handleSplitterMouseUp);
-    };
-  }, [isResizingSplit, handleSplitterMouseMove, handleSplitterMouseUp]);
-  const handleResetSplitter = () => {
-    setEditorSplitPercent(50);
-    setMaximizedArea('none');
-  };
-
-  const isWebProject = ['html', 'css', 'javascript', 'html-css-js'].includes(project.language);
-  const allCurrentDiagnostics = [...staticDiagnostics, ...runtimeErrors];
-
-  const getStatusBadge = () => {
-    switch (executionStatus) {
-      case 'running':
-      case 'initializing':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      case 'completed':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      case 'error':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
-            <AlertOctagon className="w-3 h-3 text-red-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      default:
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-            <span>Ready</span>
-          </div>
-        );
-    }
-  };
-
-  return (
-    <div
-      className="
-        flex flex-col w-full bg-slate-100 font-sans
-        min-h-[100dvh] md:h-[100dvh]
-        md:overflow-hidden
-      "
-    >
-      <header className="flex items-center justify-between px-3 h-12 bg-white border-b border-slate-200 shrink-0 z-30">
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <button onClick={onNavigateHome} className="flex items-center justify-center p-2 min-w-[36px] min-h-[36px] text-slate-500 hover:text-slate-900 rounded-md transition-colors cursor-pointer" title="Exit to RunStack Home">
-'completed' : 'error');
-      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Execution failed');
-      if (pyDiags.length > 0) {
-        setRuntimeErrors((prev) => [...prev, ...pyDiags]);
-        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
-      }
-    } else if (currentLang === 'sql') {
-      onUpdateSettings({ activePanelTab: 'output', isPanelCollapsed: false });
-      const sqlFile = project.files.find((f) => f.path.endsWith('.sql')) || activeFile;
-      setExecutionStatus('running');
-      setStatusMessage('Executing SQLite query...');
-      const { result, diagnostics: sqlDiags } = await sqlEngine.runSql(sqlFile?.content || '');
-      setExecutionResult(result);
-      setExecutionStatus(result.success ? 'completed' : 'error');
-      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Query execution failed');
-      if (sqlDiags.length > 0) {
-        setRuntimeErrors((prev) => [...prev, ...sqlDiags]);
-        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
-      }
-    } else {
-      setExecutionStatus('running');
-      setStatusMessage('Compiling web bundle...');
-      const iframe = document.querySelector('iframe');
-      if (iframe) iframe.srcdoc = iframe.srcdoc;
-      setTimeout(() => {
-        setExecutionStatus('completed');
-        setStatusMessage('Live preview updated');
-      }, 300);
-    }
-  };
-
-  const handleSelectDiagnostic = (diag: Diagnostic) => {
-    const targetFile = project.files.find(
-      (f) => f.path === diag.file || f.name === diag.file || f.path.endsWith('/' + diag.file) || diag.file.endsWith(f.name)
-    );
-    if (targetFile && targetFile.id !== project.activeFileId) {
-      onUpdateProject({ ...project, activeFileId: targetFile.id });
-    }
-    setJumpToLine({ line: diag.line, column: diag.column, timestamp: Date.now() });
-    if (maximizedArea === 'panel' || maximizedArea === 'preview') setMaximizedArea('none');
-    if (mobileView !== 'editor' && mobileView !== 'split') setMobileView('editor');
-  };
-
-  const handleNavigatePreviewPage = (targetPath: string) => {
-    const clean = targetPath.replace(/^\.\//, '');
-    const matched = project.files.find(
-      (f) => f.path === clean || f.name === clean || f.path.endsWith('/' + clean) || f.path.replace(/^\/+/, '') === clean
-    );
-    if (matched) handleSelectFile(matched.id);
-  };
-
-  const handleSwitchLanguage = (newLang: SupportedLanguage) => {
-    setIsLanguageSelectOpen(false);
-    const template = STARTER_TEMPLATES[newLang];
-    if (!template) return;
-    const now = Date.now();
-    const newFiles = template.files.map((f, idx) => ({
-      id: `file_${newLang}_${idx}_${now}`,
-      name: f.name,
-      path: f.path,
-      content: f.content,
-      language: f.language,
-      updatedAt: now,
-    }));
-    onUpdateProject({ ...project, language: newLang, files: newFiles, activeFileId: newFiles[0].id, updatedAt: now });
-    setConsoleMessages([]);
-    setRuntimeErrors([]);
-    setExecutionResult(null);
-    setExecutionStatus('ready');
-    setStatusMessage('Ready');
-    setJumpToLine(null);
-    setStdinValue('');
-    setDirtyFileIds(new Set());
-  };
-
-  const handleEvaluateConsole = (code: string) => {
-    setConsoleMessages((prev) => [...prev, {
-      id: 'repl_in_' + Date.now(), type: 'info', text: `> ${code}`, timestamp: Date.now(),
-    }]);
-    const iframe = document.querySelector('iframe');
-    if (iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage({ target: 'RUNSTACK_SANDBOX', action: 'EVAL_CODE', code }, '*');
-    } else {
-      setConsoleMessages((prev) => [...prev, {
-        id: 'repl_noready_' + Date.now(),
-        type: 'warn',
-        text: 'Preview is not ready. Run your project before evaluating in the REPL.',
-        timestamp: Date.now(),
-      }]);
-    }
-  };
-
-  // --- New editor action handlers ---
-  const handleSelectAll = () => editorHandleRef.current?.selectAll();
-  const handleCopy = () => editorHandleRef.current?.copy();
-  const handleCut = () => editorHandleRef.current?.cut();
-  const handlePaste = () => editorHandleRef.current?.paste();
-  const handleUndo = () => editorHandleRef.current?.undo();
-  const handleRedo = () => editorHandleRef.current?.redo();
-  const handleReplace = () => editorHandleRef.current?.triggerReplace();
-  const handleIncreaseFont = () => onUpdateSettings({ fontSize: Math.min(28, settings.fontSize + 1) });
-  const handleDecreaseFont = () => onUpdateSettings({ fontSize: Math.max(10, settings.fontSize - 1) });
-  const handleToggleWordWrap = () => onUpdateSettings({ wordWrap: settings.wordWrap === 'on' ? 'off' : 'on' });
-
-  const handleClearActiveFile = () => {
-    if (!activeFile) return;
-    const isDirty = dirtyFileIds.has(activeFile.id);
-    if (isDirty) {
-      const confirmed = window.confirm(
-        `Clear the contents of "${activeFile.name}"? Unsaved changes in this file will be lost. Other files will not be affected.`
-      );
-      if (!confirmed) return;
-    }
-    editorHandleRef.current?.clearActiveFile();
-    // The editor's onChange will fire with "", which updates project state.
-    setRuntimeErrors((prev) => prev.filter((e) => e.file !== activeFile.path && e.file !== activeFile.name));
-  };
-
-  // --- Global keyboard shortcuts (only act when the editor has focus) ---
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const editorIsFocused = editorContainerRef.current?.contains(document.activeElement) ?? false;
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        handleSaveProject();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        handleRun();
-        return;
-      }
-      if (!editorIsFocused) return;
-
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        editorHandleRef.current?.triggerFind();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
-        e.preventDefault();
-        editorHandleRef.current?.triggerReplace();
-      }
-      // Ctrl+A/C/X/V/Z/Y are handled natively by Monaco when focused — no interception needed.
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, stdinValue, settings]);
-
-  // --- Splitter ---
-  const handleSplitterMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizingSplit(true);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  };
-  const handleSplitterMouseMove = useCallback((e: MouseEvent) => {
-    if (!isResizingSplit || !mainSplitRef.current) return;
-    const rect = mainSplitRef.current.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const percent = Math.max(20, Math.min(80, (offsetX / rect.width) * 100));
-    setEditorSplitPercent(percent);
-  }, [isResizingSplit]);
-  const handleSplitterMouseUp = useCallback(() => {
-    if (isResizingSplit) {
-      setIsResizingSplit(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-  }, [isResizingSplit]);
-  useEffect(() => {
-    if (isResizingSplit) {
-      window.addEventListener('mousemove', handleSplitterMouseMove);
-      window.addEventListener('mouseup', handleSplitterMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleSplitterMouseMove);
-      window.removeEventListener('mouseup', handleSplitterMouseUp);
-    };
-  }, [isResizingSplit, handleSplitterMouseMove, handleSplitterMouseUp]);
-  const handleResetSplitter = () => {
-    setEditorSplitPercent(50);
-    setMaximizedArea('none');
-  };
-
-  const isWebProject = ['html', 'css', 'javascript', 'html-css-js'].includes(project.language);
-  const allCurrentDiagnostics = [...staticDiagnostics, ...runtimeErrors];
-
-  const getStatusBadge = () => {
-    switch (executionStatus) {
-      case 'running':
-      case 'initializing':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      case 'completed':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      case 'error':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
-            <AlertOctagon className="w-3 h-3 text-red-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      default:
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-            <span>Ready</span>
-          </div>
-        );
-    }
-  };
-
-  return (
-    <div
-      className="
-        flex flex-col w-full bg-slate-100 font-sans
-        min-h-[100dvh] md:h-[100dvh]
-        md:overflow-hidden
-      "
-    >
-      <header className="flex items-center justify-between px-3 h-12 bg-white border-b border-slate-200 shrink-0 z-30">
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <button onClick={onNavigateHome} className="flex items-center justify-center p-2 min-w-[36px] min-h-[36px] text-slate-500 hover:text-slate-900 rounded-md transition-colors cursor-pointer" title="Exit to RunStack Home">
-'completed' : 'error');
-      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Execution failed');
-      if (pyDiags.length > 0) {
-        setRuntimeErrors((prev) => [...prev, ...pyDiags]);
-        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
-      }
-    } else if (currentLang === 'sql') {
-      onUpdateSettings({ activePanelTab: 'output', isPanelCollapsed: false });
-      const sqlFile = project.files.find((f) => f.path.endsWith('.sql')) || activeFile;
-      setExecutionStatus('running');
-      setStatusMessage('Executing SQLite query...');
-      const { result, diagnostics: sqlDiags } = await sqlEngine.runSql(sqlFile?.content || '');
-      setExecutionResult(result);
-      setExecutionStatus(result.success ? 'completed' : 'error');
-      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Query execution failed');
-      if (sqlDiags.length > 0) {
-        setRuntimeErrors((prev) => [...prev, ...sqlDiags]);
-        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
-      }
-    } else {
-      setExecutionStatus('running');
-      setStatusMessage('Compiling web bundle...');
-      const iframe = document.querySelector('iframe');
-      if (iframe) iframe.srcdoc = iframe.srcdoc;
-      setTimeout(() => {
-        setExecutionStatus('completed');
-        setStatusMessage('Live preview updated');
-      }, 300);
-    }
-  };
-
-  const handleSelectDiagnostic = (diag: Diagnostic) => {
-    const targetFile = project.files.find(
-      (f) => f.path === diag.file || f.name === diag.file || f.path.endsWith('/' + diag.file) || diag.file.endsWith(f.name)
-    );
-    if (targetFile && targetFile.id !== project.activeFileId) {
-      onUpdateProject({ ...project, activeFileId: targetFile.id });
-    }
-    setJumpToLine({ line: diag.line, column: diag.column, timestamp: Date.now() });
-    if (maximizedArea === 'panel' || maximizedArea === 'preview') setMaximizedArea('none');
-    if (mobileView !== 'editor' && mobileView !== 'split') setMobileView('editor');
-  };
-
-  const handleNavigatePreviewPage = (targetPath: string) => {
-    const clean = targetPath.replace(/^\.\//, '');
-    const matched = project.files.find(
-      (f) => f.path === clean || f.name === clean || f.path.endsWith('/' + clean) || f.path.replace(/^\/+/, '') === clean
-    );
-    if (matched) handleSelectFile(matched.id);
-  };
-
-  const handleSwitchLanguage = (newLang: SupportedLanguage) => {
-    setIsLanguageSelectOpen(false);
-    const template = STARTER_TEMPLATES[newLang];
-    if (!template) return;
-    const now = Date.now();
-    const newFiles = template.files.map((f, idx) => ({
-      id: `file_${newLang}_${idx}_${now}`,
-      name: f.name,
-      path: f.path,
-      content: f.content,
-      language: f.language,
-      updatedAt: now,
-    }));
-    onUpdateProject({ ...project, language: newLang, files: newFiles, activeFileId: newFiles[0].id, updatedAt: now });
-    setConsoleMessages([]);
-    setRuntimeErrors([]);
-    setExecutionResult(null);
-    setExecutionStatus('ready');
-    setStatusMessage('Ready');
-    setJumpToLine(null);
-    setStdinValue('');
-    setDirtyFileIds(new Set());
-  };
-
-  const handleEvaluateConsole = (code: string) => {
-    setConsoleMessages((prev) => [...prev, {
-      id: 'repl_in_' + Date.now(), type: 'info', text: `> ${code}`, timestamp: Date.now(),
-    }]);
-    const iframe = document.querySelector('iframe');
-    if (iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage({ target: 'RUNSTACK_SANDBOX', action: 'EVAL_CODE', code }, '*');
-    } else {
-      setConsoleMessages((prev) => [...prev, {
-        id: 'repl_noready_' + Date.now(),
-        type: 'warn',
-        text: 'Preview is not ready. Run your project before evaluating in the REPL.',
-        timestamp: Date.now(),
-      }]);
-    }
-  };
-
-  // --- New editor action handlers ---
-  const handleSelectAll = () => editorHandleRef.current?.selectAll();
-  const handleCopy = () => editorHandleRef.current?.copy();
-  const handleCut = () => editorHandleRef.current?.cut();
-  const handlePaste = () => editorHandleRef.current?.paste();
-  const handleUndo = () => editorHandleRef.current?.undo();
-  const handleRedo = () => editorHandleRef.current?.redo();
-  const handleReplace = () => editorHandleRef.current?.triggerReplace();
-  const handleIncreaseFont = () => onUpdateSettings({ fontSize: Math.min(28, settings.fontSize + 1) });
-  const handleDecreaseFont = () => onUpdateSettings({ fontSize: Math.max(10, settings.fontSize - 1) });
-  const handleToggleWordWrap = () => onUpdateSettings({ wordWrap: settings.wordWrap === 'on' ? 'off' : 'on' });
-
-  const handleClearActiveFile = () => {
-    if (!activeFile) return;
-    const isDirty = dirtyFileIds.has(activeFile.id);
-    if (isDirty) {
-      const confirmed = window.confirm(
-        `Clear the contents of "${activeFile.name}"? Unsaved changes in this file will be lost. Other files will not be affected.`
-      );
-      if (!confirmed) return;
-    }
-    editorHandleRef.current?.clearActiveFile();
-    // The editor's onChange will fire with "", which updates project state.
-    setRuntimeErrors((prev) => prev.filter((e) => e.file !== activeFile.path && e.file !== activeFile.name));
-  };
-
-  // --- Global keyboard shortcuts (only act when the editor has focus) ---
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const editorIsFocused = editorContainerRef.current?.contains(document.activeElement) ?? false;
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        handleSaveProject();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        handleRun();
-        return;
-      }
-      if (!editorIsFocused) return;
-
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        editorHandleRef.current?.triggerFind();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
-        e.preventDefault();
-        editorHandleRef.current?.triggerReplace();
-      }
-      // Ctrl+A/C/X/V/Z/Y are handled natively by Monaco when focused — no interception needed.
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, stdinValue, settings]);
-
-  // --- Splitter ---
-  const handleSplitterMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizingSplit(true);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  };
-  const handleSplitterMouseMove = useCallback((e: MouseEvent) => {
-    if (!isResizingSplit || !mainSplitRef.current) return;
-    const rect = mainSplitRef.current.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const percent = Math.max(20, Math.min(80, (offsetX / rect.width) * 100));
-    setEditorSplitPercent(percent);
-  }, [isResizingSplit]);
-  const handleSplitterMouseUp = useCallback(() => {
-    if (isResizingSplit) {
-      setIsResizingSplit(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-  }, [isResizingSplit]);
-  useEffect(() => {
-    if (isResizingSplit) {
-      window.addEventListener('mousemove', handleSplitterMouseMove);
-      window.addEventListener('mouseup', handleSplitterMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleSplitterMouseMove);
-      window.removeEventListener('mouseup', handleSplitterMouseUp);
-    };
-  }, [isResizingSplit, handleSplitterMouseMove, handleSplitterMouseUp]);
-  const handleResetSplitter = () => {
-    setEditorSplitPercent(50);
-    setMaximizedArea('none');
-  };
-
-  const isWebProject = ['html', 'css', 'javascript', 'html-css-js'].includes(project.language);
-  const allCurrentDiagnostics = [...staticDiagnostics, ...runtimeErrors];
-
-  const getStatusBadge = () => {
-    switch (executionStatus) {
-      case 'running':
-      case 'initializing':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      case 'completed':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      case 'error':
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
-            <AlertOctagon className="w-3 h-3 text-red-600" />
-            <span className="truncate max-w-[120px]">{statusMessage}</span>
-          </div>
-        );
-      default:
-        return (
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-            <span>Ready</span>
-          </div>
-        );
-    }
-  };
-
-  return (
-    <div
-      className="
-        flex flex-col w-full bg-slate-100 font-sans
-        min-h-[100dvh] md:h-[100dvh]
-        md:overflow-hidden
-      "
-    >
-      <header className="flex items-center justify-between px-3 h-12 bg-white border-b border-slate-200 shrink-0 z-30">
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <button onClick={onNavigateHome} className="flex items-center justify-center p-2 min-w-[36px] min-h-[36px] text-slate-500 hover:text-slate-900 rounded-md transition-colors cursor-pointer" title="Exit to RunStack Home">
-itializing');
       setStatusMessage('Initializing Pyodide WebAssembly...');
 
       const { result, diagnostics: pyDiags } = await pythonEngine.runPython(
@@ -1164,7 +541,7 @@ itializing');
     setMaximizedArea('none');
   };
 
-  const isWebProject = ['html', 'css', 'javascript', 'html-css-js'].includes(project.language);
+  const isWebProject = ['html', 'css', 'javascript', 'html-css-js', 'typescript', 'react'].includes(project.language);
 
   // Status Indicator Styles
   const getStatusBadge = () => {
@@ -1205,7 +582,10 @@ itializing');
   const allCurrentDiagnostics = [...staticDiagnostics, ...runtimeErrors];
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full max-w-full bg-slate-100 overflow-hidden font-sans select-none">
+    <div
+      style={{ height: viewportHeight ? `${viewportHeight}px` : '100dvh' }}
+      className="flex flex-col w-full max-w-full bg-slate-100 overflow-hidden font-sans select-none"
+    >
       {/* 1. TOP WORKSPACE TOOLBAR */}
       <header className="flex items-center justify-between px-3 h-12 bg-white border-b border-slate-200 shrink-0 z-30">
         {/* Left: Brand + Project Title + Explorer Toggle */}
@@ -1579,8 +959,26 @@ itializing');
                   onCloseTab={handleCloseTab}
                   onNewFileClick={() => handleCreateFile(`new_file_${project.files.length + 1}.js`)}
                   dirtyFileIds={dirtyFileIds}
+                  onUndo={() => editorHandleRef.current?.undo()}
+                  onRedo={() => editorHandleRef.current?.redo()}
+                  onSelectAll={() => editorHandleRef.current?.selectAll()}
+                  onCopySelection={() => editorHandleRef.current?.copySelection()}
                   onTriggerFind={() => editorHandleRef.current?.triggerFind()}
+                  onTriggerReplace={() => editorHandleRef.current?.triggerReplace()}
                   onFormatDocument={() => editorHandleRef.current?.formatDocument()}
+                  wordWrap={settings.wordWrap}
+                  onToggleWordWrap={() =>
+                    onUpdateSettings({ wordWrap: settings.wordWrap === 'on' ? 'off' : 'on' })
+                  }
+                  lineNumbers={settings.lineNumbers || 'on'}
+                  onToggleLineNumbers={() =>
+                    onUpdateSettings({ lineNumbers: settings.lineNumbers === 'off' ? 'on' : 'off' })
+                  }
+                  fontSize={settings.fontSize}
+                  onChangeFontSize={(delta) =>
+                    onUpdateSettings({ fontSize: Math.max(11, Math.min(24, settings.fontSize + delta)) })
+                  }
+                  onDownloadCurrentFile={() => activeFile && downloadSingleFile(activeFile)}
                   theme={settings.theme}
                   onToggleTheme={() =>
                     onUpdateSettings({ theme: settings.theme === 'vs' ? 'vs-dark' : 'vs' })
@@ -1597,6 +995,7 @@ itializing');
                       theme={settings.theme}
                       fontSize={settings.fontSize}
                       wordWrap={settings.wordWrap}
+                      lineNumbers={settings.lineNumbers || 'on'}
                       jumpToLine={jumpToLine}
                       diagnostics={allCurrentDiagnostics}
                     />

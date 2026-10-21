@@ -3,12 +3,22 @@ import { LanguageInfo, SupportedLanguage } from '../types/project';
 export const SUPPORTED_LANGUAGES: LanguageInfo[] = [
   {
     id: 'html-css-js',
-    name: 'HTML + CSS + JS',
+    name: 'HTML + CSS + JS (Multi-file)',
     category: 'web',
     extension: 'html',
     isAvailable: true,
-    statusNote: 'Live browser preview with sandboxed DOM, console interception, and real-time execution.',
+    statusNote: 'Live browser preview combining HTML, linked stylesheet, and JavaScript scripts.',
     iconName: 'Layout',
+    defaultFilename: 'index.html',
+  },
+  {
+    id: 'html',
+    name: 'HTML5 (Single Document)',
+    category: 'web',
+    extension: 'html',
+    isAvailable: true,
+    statusNote: 'Self-contained HTML document with embedded styles and scripts in an isolated sandbox.',
+    iconName: 'Globe',
     defaultFilename: 'index.html',
   },
   {
@@ -22,14 +32,24 @@ export const SUPPORTED_LANGUAGES: LanguageInfo[] = [
     defaultFilename: 'script.js',
   },
   {
-    id: 'html',
-    name: 'HTML5',
+    id: 'typescript',
+    name: 'TypeScript',
     category: 'web',
-    extension: 'html',
+    extension: 'ts',
     isAvailable: true,
-    statusNote: 'Live sandboxed HTML5 rendering with DOM inspection.',
-    iconName: 'Globe',
-    defaultFilename: 'index.html',
+    statusNote: 'Real-time in-browser transpilation via Sucrase with type stripping and live sandboxed execution.',
+    iconName: 'Code',
+    defaultFilename: 'index.ts',
+  },
+  {
+    id: 'react',
+    name: 'React (TSX / JSX)',
+    category: 'web',
+    extension: 'tsx',
+    isAvailable: true,
+    statusNote: 'Interactive React components transpiled in-browser with live sandboxed preview and DOM rendering.',
+    iconName: 'Atom',
+    defaultFilename: 'App.tsx',
   },
   {
     id: 'css',
@@ -62,14 +82,14 @@ export const SUPPORTED_LANGUAGES: LanguageInfo[] = [
     defaultFilename: 'query.sql',
   },
   {
-    id: 'typescript',
-    name: 'TypeScript',
+    id: 'json',
+    name: 'JSON Data',
     category: 'web',
-    extension: 'ts',
-    isAvailable: false,
-    statusNote: 'Server-side compiler required. Client-side transpilation container planned.',
-    iconName: 'Code',
-    defaultFilename: 'index.ts',
+    extension: 'json',
+    isAvailable: true,
+    statusNote: 'Structured data format with Monaco schema validation and formatting.',
+    iconName: 'FileJson',
+    defaultFilename: 'data.json',
   },
   {
     id: 'cpp',
@@ -375,32 +395,61 @@ console.info("Try logging warnings or errors to inspect the RunStack Developer C
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RunStack HTML5 Document</title>
+  <title>RunStack HTML Document</title>
   <style>
     body {
-      font-family: system-ui, sans-serif;
-      padding: 2rem;
-      max-width: 650px;
-      margin: 0 auto;
-      color: #1e293b;
-      line-height: 1.6;
+      font-family: Arial, sans-serif;
+      padding: 24px;
+      margin: 0;
+      background: #f8fafc;
+      color: #0f172a;
     }
-    h1 { color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; }
-    .badge { display: inline-block; background: #e0e7ff; color: #3730a3; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+    .card {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 480px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.5rem;
+      color: #1e293b;
+    }
+    p {
+      color: #64748b;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
   </style>
 </head>
 <body>
-  <h1>HTML5 Living Document</h1>
-  <p>Start writing semantic HTML5. Changes are reflected in the live preview.</p>
-  
-  <article>
-    <h2>Semantic Components</h2>
-    <ul>
-      <li>Modern HTML5 structure tags</li>
-      <li>Instant sandboxed rendering</li>
-      <li>Isolated iframe security</li>
-    </ul>
-  </article>
+  <div class="card">
+    <h1>Hello from RunStack</h1>
+    <p>This is a self-contained single-file HTML document with embedded CSS and JavaScript.</p>
+    <button onclick="showMessage()">Click Me</button>
+  </div>
+
+  <script>
+    function showMessage() {
+      alert("RunStack is working!");
+    }
+  </script>
 </body>
 </html>`,
       },
@@ -572,23 +621,229 @@ GROUP BY favorite_language;
   'typescript': {
     files: [
       {
+        name: 'index.html',
+        path: 'index.html',
+        language: 'html',
+        content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RunStack TypeScript</title>
+</head>
+<body style="font-family: system-ui, sans-serif; padding: 24px; color: #1e293b; background: #f8fafc;">
+  <div id="app" style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; max-width: 480px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+    <h1 style="font-size: 1.4rem; margin-top: 0;">TypeScript Runtime</h1>
+    <div id="output">Running TypeScript compilation...</div>
+  </div>
+  <script src="index.ts"></script>
+</body>
+</html>`,
+      },
+      {
         name: 'index.ts',
         path: 'index.ts',
         language: 'typescript',
-        content: `// TypeScript starter file
+        content: `// RunStack In-Browser TypeScript Runtime
 interface Developer {
   name: string;
   role: string;
-  languages: string[];
+  skills: string[];
+  experienceYears: number;
 }
 
-const user: Developer = {
-  name: "Alex",
+function generateReport(dev: Developer): string {
+  return \`<strong>\${dev.name}</strong> (\${dev.role}) with \${dev.experienceYears} years experience. Skills: \${dev.skills.join(', ')}.\`;
+}
+
+const developer: Developer = {
+  name: "Alex Vance",
   role: "Full-Stack Engineer",
-  languages: ["TypeScript", "Python"]
+  skills: ["TypeScript", "React", "Node.js"],
+  experienceYears: 5
 };
 
-console.log(user);`,
+console.log("TypeScript loaded successfully:", developer);
+
+const outputEl = document.getElementById("output");
+if (outputEl) {
+  outputEl.innerHTML = \`
+    <p style="color: #059669; font-weight: 600;">✓ Compiled and executed via Sucrase</p>
+    <p>\${generateReport(developer)}</p>
+  \`;
+}`,
+      },
+    ],
+  },
+  'react': {
+    files: [
+      {
+        name: 'index.html',
+        path: 'index.html',
+        language: 'html',
+        content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RunStack React Playground</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="App.tsx" type="text/babel"></script>
+</body>
+</html>`,
+      },
+      {
+        name: 'App.tsx',
+        path: 'App.tsx',
+        language: 'typescript',
+        content: `import React, { useState } from 'react';
+
+export default function App() {
+  const [count, setCount] = useState<number>(0);
+
+  return (
+    <div className="react-card">
+      <div className="badge">React 18 + TSX</div>
+      <h1>Interactive React Component</h1>
+      <p>Transpiled on the fly in your browser with live sandboxed preview.</p>
+      
+      <div className="counter-box">
+        <span className="count-label">Count</span>
+        <span className="count-val">{count}</span>
+        <div className="actions">
+          <button onClick={() => setCount(c => c - 1)} className="btn btn-sec">- Dec</button>
+          <button onClick={() => setCount(0)} className="btn btn-outline">Reset</button>
+          <button onClick={() => setCount(c => c + 1)} className="btn btn-pri">+ Inc</button>
+        </div>
+      </div>
+    </div>
+  );
+}`,
+      },
+      {
+        name: 'style.css',
+        path: 'style.css',
+        language: 'css',
+        content: `body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+  padding: 24px;
+  background: #f8fafc;
+  color: #0f172a;
+  display: flex;
+  justify-content: center;
+}
+.react-card {
+  max-width: 440px;
+  width: 100%;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+}
+.badge {
+  display: inline-block;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+h1 {
+  font-size: 1.3rem;
+  margin: 0 0 8px;
+  color: #1e293b;
+}
+p {
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.counter-box {
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+.count-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748b;
+  font-weight: 700;
+}
+.count-val {
+  display: block;
+  font-size: 2.75rem;
+  font-weight: 800;
+  color: #2563eb;
+  margin: 4px 0 12px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.btn-pri {
+  background: #2563eb;
+  color: white;
+}
+.btn-sec {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+.btn-outline {
+  background: transparent;
+  border-color: #cbd5e1;
+  color: #64748b;
+}`,
+      },
+    ],
+  },
+  'json': {
+    files: [
+      {
+        name: 'data.json',
+        path: 'data.json',
+        language: 'json',
+        content: `{
+  "app": "RunStack",
+  "version": "1.0.0",
+  "author": "RunStack Team",
+  "supportedLanguages": [
+    "html",
+    "css",
+    "javascript",
+    "typescript",
+    "react",
+    "python",
+    "sql",
+    "json"
+  ],
+  "features": {
+    "localPersistence": true,
+    "sandboxedPreview": true,
+    "interactiveConsole": true,
+    "zipArchiveExport": true
+  }
+}`,
       },
     ],
   },
