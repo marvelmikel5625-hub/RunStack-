@@ -461,6 +461,470 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       <header className="flex items-center justify-between px-3 h-12 bg-white border-b border-slate-200 shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <button onClick={onNavigateHome} className="flex items-center justify-center p-2 min-w-[36px] min-h-[36px] text-slate-500 hover:text-slate-900 rounded-md transition-colors cursor-pointer" title="Exit to RunStack Home">
+'completed' : 'error');
+      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Execution failed');
+      if (pyDiags.length > 0) {
+        setRuntimeErrors((prev) => [...prev, ...pyDiags]);
+        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
+      }
+    } else if (currentLang === 'sql') {
+      onUpdateSettings({ activePanelTab: 'output', isPanelCollapsed: false });
+      const sqlFile = project.files.find((f) => f.path.endsWith('.sql')) || activeFile;
+      setExecutionStatus('running');
+      setStatusMessage('Executing SQLite query...');
+      const { result, diagnostics: sqlDiags } = await sqlEngine.runSql(sqlFile?.content || '');
+      setExecutionResult(result);
+      setExecutionStatus(result.success ? 'completed' : 'error');
+      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Query execution failed');
+      if (sqlDiags.length > 0) {
+        setRuntimeErrors((prev) => [...prev, ...sqlDiags]);
+        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
+      }
+    } else {
+      setExecutionStatus('running');
+      setStatusMessage('Compiling web bundle...');
+      const iframe = document.querySelector('iframe');
+      if (iframe) iframe.srcdoc = iframe.srcdoc;
+      setTimeout(() => {
+        setExecutionStatus('completed');
+        setStatusMessage('Live preview updated');
+      }, 300);
+    }
+  };
+
+  const handleSelectDiagnostic = (diag: Diagnostic) => {
+    const targetFile = project.files.find(
+      (f) => f.path === diag.file || f.name === diag.file || f.path.endsWith('/' + diag.file) || diag.file.endsWith(f.name)
+    );
+    if (targetFile && targetFile.id !== project.activeFileId) {
+      onUpdateProject({ ...project, activeFileId: targetFile.id });
+    }
+    setJumpToLine({ line: diag.line, column: diag.column, timestamp: Date.now() });
+    if (maximizedArea === 'panel' || maximizedArea === 'preview') setMaximizedArea('none');
+    if (mobileView !== 'editor' && mobileView !== 'split') setMobileView('editor');
+  };
+
+  const handleNavigatePreviewPage = (targetPath: string) => {
+    const clean = targetPath.replace(/^\.\//, '');
+    const matched = project.files.find(
+      (f) => f.path === clean || f.name === clean || f.path.endsWith('/' + clean) || f.path.replace(/^\/+/, '') === clean
+    );
+    if (matched) handleSelectFile(matched.id);
+  };
+
+  const handleSwitchLanguage = (newLang: SupportedLanguage) => {
+    setIsLanguageSelectOpen(false);
+    const template = STARTER_TEMPLATES[newLang];
+    if (!template) return;
+    const now = Date.now();
+    const newFiles = template.files.map((f, idx) => ({
+      id: `file_${newLang}_${idx}_${now}`,
+      name: f.name,
+      path: f.path,
+      content: f.content,
+      language: f.language,
+      updatedAt: now,
+    }));
+    onUpdateProject({ ...project, language: newLang, files: newFiles, activeFileId: newFiles[0].id, updatedAt: now });
+    setConsoleMessages([]);
+    setRuntimeErrors([]);
+    setExecutionResult(null);
+    setExecutionStatus('ready');
+    setStatusMessage('Ready');
+    setJumpToLine(null);
+    setStdinValue('');
+    setDirtyFileIds(new Set());
+  };
+
+  const handleEvaluateConsole = (code: string) => {
+    setConsoleMessages((prev) => [...prev, {
+      id: 'repl_in_' + Date.now(), type: 'info', text: `> ${code}`, timestamp: Date.now(),
+    }]);
+    const iframe = document.querySelector('iframe');
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ target: 'RUNSTACK_SANDBOX', action: 'EVAL_CODE', code }, '*');
+    } else {
+      setConsoleMessages((prev) => [...prev, {
+        id: 'repl_noready_' + Date.now(),
+        type: 'warn',
+        text: 'Preview is not ready. Run your project before evaluating in the REPL.',
+        timestamp: Date.now(),
+      }]);
+    }
+  };
+
+  // --- New editor action handlers ---
+  const handleSelectAll = () => editorHandleRef.current?.selectAll();
+  const handleCopy = () => editorHandleRef.current?.copy();
+  const handleCut = () => editorHandleRef.current?.cut();
+  const handlePaste = () => editorHandleRef.current?.paste();
+  const handleUndo = () => editorHandleRef.current?.undo();
+  const handleRedo = () => editorHandleRef.current?.redo();
+  const handleReplace = () => editorHandleRef.current?.triggerReplace();
+  const handleIncreaseFont = () => onUpdateSettings({ fontSize: Math.min(28, settings.fontSize + 1) });
+  const handleDecreaseFont = () => onUpdateSettings({ fontSize: Math.max(10, settings.fontSize - 1) });
+  const handleToggleWordWrap = () => onUpdateSettings({ wordWrap: settings.wordWrap === 'on' ? 'off' : 'on' });
+
+  const handleClearActiveFile = () => {
+    if (!activeFile) return;
+    const isDirty = dirtyFileIds.has(activeFile.id);
+    if (isDirty) {
+      const confirmed = window.confirm(
+        `Clear the contents of "${activeFile.name}"? Unsaved changes in this file will be lost. Other files will not be affected.`
+      );
+      if (!confirmed) return;
+    }
+    editorHandleRef.current?.clearActiveFile();
+    // The editor's onChange will fire with "", which updates project state.
+    setRuntimeErrors((prev) => prev.filter((e) => e.file !== activeFile.path && e.file !== activeFile.name));
+  };
+
+  // --- Global keyboard shortcuts (only act when the editor has focus) ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const editorIsFocused = editorContainerRef.current?.contains(document.activeElement) ?? false;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveProject();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleRun();
+        return;
+      }
+      if (!editorIsFocused) return;
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        editorHandleRef.current?.triggerFind();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        editorHandleRef.current?.triggerReplace();
+      }
+      // Ctrl+A/C/X/V/Z/Y are handled natively by Monaco when focused — no interception needed.
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [project, stdinValue, settings]);
+
+  // --- Splitter ---
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingSplit(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+  const handleSplitterMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizingSplit || !mainSplitRef.current) return;
+    const rect = mainSplitRef.current.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const percent = Math.max(20, Math.min(80, (offsetX / rect.width) * 100));
+    setEditorSplitPercent(percent);
+  }, [isResizingSplit]);
+  const handleSplitterMouseUp = useCallback(() => {
+    if (isResizingSplit) {
+      setIsResizingSplit(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  }, [isResizingSplit]);
+  useEffect(() => {
+    if (isResizingSplit) {
+      window.addEventListener('mousemove', handleSplitterMouseMove);
+      window.addEventListener('mouseup', handleSplitterMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleSplitterMouseMove);
+      window.removeEventListener('mouseup', handleSplitterMouseUp);
+    };
+  }, [isResizingSplit, handleSplitterMouseMove, handleSplitterMouseUp]);
+  const handleResetSplitter = () => {
+    setEditorSplitPercent(50);
+    setMaximizedArea('none');
+  };
+
+  const isWebProject = ['html', 'css', 'javascript', 'html-css-js'].includes(project.language);
+  const allCurrentDiagnostics = [...staticDiagnostics, ...runtimeErrors];
+
+  const getStatusBadge = () => {
+    switch (executionStatus) {
+      case 'running':
+      case 'initializing':
+        return (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+            <span className="truncate max-w-[120px]">{statusMessage}</span>
+          </div>
+        );
+      case 'completed':
+        return (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+            <span className="truncate max-w-[120px]">{statusMessage}</span>
+          </div>
+        );
+      case 'error':
+        return (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
+            <AlertOctagon className="w-3 h-3 text-red-600" />
+            <span className="truncate max-w-[120px]">{statusMessage}</span>
+          </div>
+        );
+      default:
+        return (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+            <span>Ready</span>
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div
+      className="
+        flex flex-col w-full bg-slate-100 font-sans
+        min-h-[100dvh] md:h-[100dvh]
+        md:overflow-hidden
+      "
+    >
+      <header className="flex items-center justify-between px-3 h-12 bg-white border-b border-slate-200 shrink-0 z-30">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <button onClick={onNavigateHome} className="flex items-center justify-center p-2 min-w-[36px] min-h-[36px] text-slate-500 hover:text-slate-900 rounded-md transition-colors cursor-pointer" title="Exit to RunStack Home">
+'completed' : 'error');
+      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Execution failed');
+      if (pyDiags.length > 0) {
+        setRuntimeErrors((prev) => [...prev, ...pyDiags]);
+        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
+      }
+    } else if (currentLang === 'sql') {
+      onUpdateSettings({ activePanelTab: 'output', isPanelCollapsed: false });
+      const sqlFile = project.files.find((f) => f.path.endsWith('.sql')) || activeFile;
+      setExecutionStatus('running');
+      setStatusMessage('Executing SQLite query...');
+      const { result, diagnostics: sqlDiags } = await sqlEngine.runSql(sqlFile?.content || '');
+      setExecutionResult(result);
+      setExecutionStatus(result.success ? 'completed' : 'error');
+      setStatusMessage(result.success ? `Completed in ${result.executionTimeMs}ms` : 'Query execution failed');
+      if (sqlDiags.length > 0) {
+        setRuntimeErrors((prev) => [...prev, ...sqlDiags]);
+        onUpdateSettings({ activePanelTab: 'errors', isPanelCollapsed: false });
+      }
+    } else {
+      setExecutionStatus('running');
+      setStatusMessage('Compiling web bundle...');
+      const iframe = document.querySelector('iframe');
+      if (iframe) iframe.srcdoc = iframe.srcdoc;
+      setTimeout(() => {
+        setExecutionStatus('completed');
+        setStatusMessage('Live preview updated');
+      }, 300);
+    }
+  };
+
+  const handleSelectDiagnostic = (diag: Diagnostic) => {
+    const targetFile = project.files.find(
+      (f) => f.path === diag.file || f.name === diag.file || f.path.endsWith('/' + diag.file) || diag.file.endsWith(f.name)
+    );
+    if (targetFile && targetFile.id !== project.activeFileId) {
+      onUpdateProject({ ...project, activeFileId: targetFile.id });
+    }
+    setJumpToLine({ line: diag.line, column: diag.column, timestamp: Date.now() });
+    if (maximizedArea === 'panel' || maximizedArea === 'preview') setMaximizedArea('none');
+    if (mobileView !== 'editor' && mobileView !== 'split') setMobileView('editor');
+  };
+
+  const handleNavigatePreviewPage = (targetPath: string) => {
+    const clean = targetPath.replace(/^\.\//, '');
+    const matched = project.files.find(
+      (f) => f.path === clean || f.name === clean || f.path.endsWith('/' + clean) || f.path.replace(/^\/+/, '') === clean
+    );
+    if (matched) handleSelectFile(matched.id);
+  };
+
+  const handleSwitchLanguage = (newLang: SupportedLanguage) => {
+    setIsLanguageSelectOpen(false);
+    const template = STARTER_TEMPLATES[newLang];
+    if (!template) return;
+    const now = Date.now();
+    const newFiles = template.files.map((f, idx) => ({
+      id: `file_${newLang}_${idx}_${now}`,
+      name: f.name,
+      path: f.path,
+      content: f.content,
+      language: f.language,
+      updatedAt: now,
+    }));
+    onUpdateProject({ ...project, language: newLang, files: newFiles, activeFileId: newFiles[0].id, updatedAt: now });
+    setConsoleMessages([]);
+    setRuntimeErrors([]);
+    setExecutionResult(null);
+    setExecutionStatus('ready');
+    setStatusMessage('Ready');
+    setJumpToLine(null);
+    setStdinValue('');
+    setDirtyFileIds(new Set());
+  };
+
+  const handleEvaluateConsole = (code: string) => {
+    setConsoleMessages((prev) => [...prev, {
+      id: 'repl_in_' + Date.now(), type: 'info', text: `> ${code}`, timestamp: Date.now(),
+    }]);
+    const iframe = document.querySelector('iframe');
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ target: 'RUNSTACK_SANDBOX', action: 'EVAL_CODE', code }, '*');
+    } else {
+      setConsoleMessages((prev) => [...prev, {
+        id: 'repl_noready_' + Date.now(),
+        type: 'warn',
+        text: 'Preview is not ready. Run your project before evaluating in the REPL.',
+        timestamp: Date.now(),
+      }]);
+    }
+  };
+
+  // --- New editor action handlers ---
+  const handleSelectAll = () => editorHandleRef.current?.selectAll();
+  const handleCopy = () => editorHandleRef.current?.copy();
+  const handleCut = () => editorHandleRef.current?.cut();
+  const handlePaste = () => editorHandleRef.current?.paste();
+  const handleUndo = () => editorHandleRef.current?.undo();
+  const handleRedo = () => editorHandleRef.current?.redo();
+  const handleReplace = () => editorHandleRef.current?.triggerReplace();
+  const handleIncreaseFont = () => onUpdateSettings({ fontSize: Math.min(28, settings.fontSize + 1) });
+  const handleDecreaseFont = () => onUpdateSettings({ fontSize: Math.max(10, settings.fontSize - 1) });
+  const handleToggleWordWrap = () => onUpdateSettings({ wordWrap: settings.wordWrap === 'on' ? 'off' : 'on' });
+
+  const handleClearActiveFile = () => {
+    if (!activeFile) return;
+    const isDirty = dirtyFileIds.has(activeFile.id);
+    if (isDirty) {
+      const confirmed = window.confirm(
+        `Clear the contents of "${activeFile.name}"? Unsaved changes in this file will be lost. Other files will not be affected.`
+      );
+      if (!confirmed) return;
+    }
+    editorHandleRef.current?.clearActiveFile();
+    // The editor's onChange will fire with "", which updates project state.
+    setRuntimeErrors((prev) => prev.filter((e) => e.file !== activeFile.path && e.file !== activeFile.name));
+  };
+
+  // --- Global keyboard shortcuts (only act when the editor has focus) ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const editorIsFocused = editorContainerRef.current?.contains(document.activeElement) ?? false;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveProject();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleRun();
+        return;
+      }
+      if (!editorIsFocused) return;
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        editorHandleRef.current?.triggerFind();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        editorHandleRef.current?.triggerReplace();
+      }
+      // Ctrl+A/C/X/V/Z/Y are handled natively by Monaco when focused — no interception needed.
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [project, stdinValue, settings]);
+
+  // --- Splitter ---
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingSplit(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+  const handleSplitterMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizingSplit || !mainSplitRef.current) return;
+    const rect = mainSplitRef.current.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const percent = Math.max(20, Math.min(80, (offsetX / rect.width) * 100));
+    setEditorSplitPercent(percent);
+  }, [isResizingSplit]);
+  const handleSplitterMouseUp = useCallback(() => {
+    if (isResizingSplit) {
+      setIsResizingSplit(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  }, [isResizingSplit]);
+  useEffect(() => {
+    if (isResizingSplit) {
+      window.addEventListener('mousemove', handleSplitterMouseMove);
+      window.addEventListener('mouseup', handleSplitterMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleSplitterMouseMove);
+      window.removeEventListener('mouseup', handleSplitterMouseUp);
+    };
+  }, [isResizingSplit, handleSplitterMouseMove, handleSplitterMouseUp]);
+  const handleResetSplitter = () => {
+    setEditorSplitPercent(50);
+    setMaximizedArea('none');
+  };
+
+  const isWebProject = ['html', 'css', 'javascript', 'html-css-js'].includes(project.language);
+  const allCurrentDiagnostics = [...staticDiagnostics, ...runtimeErrors];
+
+  const getStatusBadge = () => {
+    switch (executionStatus) {
+      case 'running':
+      case 'initializing':
+        return (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+            <span className="truncate max-w-[120px]">{statusMessage}</span>
+          </div>
+        );
+      case 'completed':
+        return (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+            <span className="truncate max-w-[120px]">{statusMessage}</span>
+          </div>
+        );
+      case 'error':
+        return (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
+            <AlertOctagon className="w-3 h-3 text-red-600" />
+            <span className="truncate max-w-[120px]">{statusMessage}</span>
+          </div>
+        );
+      default:
+        return (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+            <span>Ready</span>
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div
+      className="
+        flex flex-col w-full bg-slate-100 font-sans
+        min-h-[100dvh] md:h-[100dvh]
+        md:overflow-hidden
+      "
+    >
+      <header className="flex items-center justify-between px-3 h-12 bg-white border-b border-slate-200 shrink-0 z-30">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <button onClick={onNavigateHome} className="flex items-center justify-center p-2 min-w-[36px] min-h-[36px] text-slate-500 hover:text-slate-900 rounded-md transition-colors cursor-pointer" title="Exit to RunStack Home">
 itializing');
       setStatusMessage('Initializing Pyodide WebAssembly...');
 
